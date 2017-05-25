@@ -1,0 +1,64 @@
+version: "2"
+services:
+  postgres:
+    image: trambar-postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - /var/tmp/postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+  schema_manager:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, schema-manager.js ]
+    depends_on:
+      - postgres
+  webdav_server:
+    image: trambar-node-dev
+    ports:
+      - 8000:8000
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, webdav-server.js ]
+    depends_on:
+      - postgres
+  data_server:
+    image: trambar-node-dev
+    ports:
+      - 80:80
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, data-server.js ]
+    depends_on:
+      - postgres
