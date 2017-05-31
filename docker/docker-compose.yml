@@ -1,5 +1,15 @@
 version: "2"
 services:
+  nginx:
+    image: trambar-nginx-dev
+    ports:
+      - 80:80
+    volumes:
+      - ../nginx/conf.d:/etc/nginx/conf.d
+      - ../../trambar/client/www:/var/www/trambar/client
+    depends_on:
+      - data_server
+      - websocket_notifier
   postgres:
     image: trambar-postgres
     ports:
@@ -46,8 +56,6 @@ services:
       - postgres
   data_server:
     image: trambar-node-dev
-    ports:
-      - 80:80
     volumes:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
@@ -60,5 +68,37 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=qwerty
     command: [ nodemon, data-server.js ]
+    depends_on:
+      - postgres
+  websocket_notifier:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, websocket-notifier.js ]
+    depends_on:
+      - postgres
+  live_data_invalidator:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, live-data-invalidator.js ]
     depends_on:
       - postgres

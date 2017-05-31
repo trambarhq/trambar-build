@@ -2,22 +2,29 @@
   "name": "trambar-backend",
   "version": "1.0.0",
   "description": "Trambar Backend Services",
-  "main": "index.js",
-  "author": "Chung Leong <cleong@cal.berkeley.edu>",
+  "author": "Chung Leong <chernyshevsky@hotmail.com>",
   "license": "MIT",
+  "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "./node_modules/mocha/bin/mocha -- src/**/test/*.js",
+    "test:start": "./node_modules/mocha/bin/mocha --watch -- src/**/test/*.js"
   },
   "dependencies": {
+    "bcrypt": "^1.0.2",
     "bluebird": "^3.5.0",
+    "body-parser": "^1.17.2",
     "express": "^4.15.2",
     "jsDAV": "^0.3.4",
     "jsdav-promise": "0.0.2",
     "lodash": "^4.17.4",
     "moment": "^2.18.1",
+    "moment-timezone": "^0.5.13",
     "pg": "^6.2.2",
     "pg-pool": "^1.7.1",
-    "sharp": "0.17.3"
+    "phantom": "^4.0.3",
+    "piexifjs": "^1.0.3",
+    "sharp": "0.17.3",
+    "sockjs": "^0.3.18"
   },
   "devDependencies": {
     "chai": "^3.5.0",
