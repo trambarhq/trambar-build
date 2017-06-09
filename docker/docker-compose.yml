@@ -26,7 +26,7 @@ services:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
     environment:
-      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - DEPLOYMENT=development
       - POSTGRES_HOST=postgres
@@ -44,7 +44,7 @@ services:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
     environment:
-      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - DEPLOYMENT=development
       - POSTGRES_HOST=postgres
@@ -60,7 +60,7 @@ services:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
     environment:
-      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - DEPLOYMENT=development
       - POSTGRES_HOST=postgres
@@ -70,13 +70,30 @@ services:
     command: [ nodemon, data-server.js ]
     depends_on:
       - postgres
+  media_server:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+      - /var/tmp/media:/var/cache/media
+    environment:
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, media-server.js ]
+    depends_on:
+      - postgres
   websocket_notifier:
     image: trambar-node-dev
     volumes:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
     environment:
-      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - DEPLOYMENT=development
       - POSTGRES_HOST=postgres
@@ -92,7 +109,7 @@ services:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
     environment:
-      - NODE_PATH=/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - DEPLOYMENT=development
       - POSTGRES_HOST=postgres
@@ -100,5 +117,21 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=qwerty
     command: [ nodemon, live-data-invalidator.js ]
+    depends_on:
+      - postgres
+  live_data_updater:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, live-data-updater.js ]
     depends_on:
       - postgres
