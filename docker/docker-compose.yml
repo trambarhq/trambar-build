@@ -15,7 +15,7 @@ services:
     ports:
       - 5432:5432
     volumes:
-      - /var/tmp/postgres:/var/lib/postgresql/data
+      - ../tmp/postgres:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=trambar
       - POSTGRES_USER=root
@@ -75,7 +75,7 @@ services:
     volumes:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
-      - /var/tmp/media:/var/cache/media
+      - ../tmp/media:/var/cache/media
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
