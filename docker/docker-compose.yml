@@ -86,7 +86,7 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=qwerty
 #    command: [ nodemon, --inspect, auth-manager.js ]
-    command: [ nodemon, auth-manager.js ]    
+    command: [ nodemon, auth-manager.js ]
     depends_on:
       - postgres
   media_server:
@@ -152,5 +152,21 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=qwerty
     command: [ nodemon, live-data-updater.js ]
+    depends_on:
+      - postgres
+  gitlab_adapter:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=development
+      - DEPLOYMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=trambar
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=qwerty
+    command: [ nodemon, gitlab-adapter.js ]
     depends_on:
       - postgres
