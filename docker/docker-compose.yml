@@ -72,8 +72,25 @@ services:
       - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
+      - POSTGRES_USER=client_role
+      - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
+    command: [ nodemon, data-server.js ]
+    depends_on:
+      - postgres
+  # Admin data server (Node.js)
+  admin_data_server:
+    image: trambar-node-dev
+    volumes:
+      - ../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../trambar/common/src:/opt/trambar/common/src
+    environment:
+      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
+      - NODE_ENV=${TRAMBAR_NODE_ENV}
+      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
+      - POSTGRES_USER=admin_role
+      - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
     command: [ nodemon, data-server.js ]
     depends_on:
       - postgres
