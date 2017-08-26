@@ -100,6 +100,7 @@ services:
     volumes:
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
+      - ${TRAMBAR_HTPASSWD_FOLDER}:/etc/trambar
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=${TRAMBAR_NODE_ENV}
@@ -108,6 +109,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=auth_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
+      - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
     command: [ nodemon, auth-manager.js ]
     depends_on:
       - postgres
