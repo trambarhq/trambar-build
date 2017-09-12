@@ -117,6 +117,7 @@ services:
   media_server:
     image: trambar-node-dev
     volumes:
+      - ../../trambar/backend/media:/opt/trambar/backend/media
       - ../../trambar/backend/src:/opt/trambar/backend/src
       - ../../trambar/common/src:/opt/trambar/common/src
       - ../tmp/media:/var/cache/media
