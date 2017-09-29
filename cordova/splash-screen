@@ -1,0 +1,102 @@
+#!/usr/bin/node
+
+var _ = require('lodash');
+var Promise = require('bluebird');
+var FS = require('fs');
+var Path = require('path');
+var Phantom = require('phantom');
+var XML2JS = require('xml2js');
+
+var configPath = './trambar/config.xml';
+var configText = FS.readFileSync(configPath, 'utf8');
+XML2JS.parseString(configText, (err, config) => {
+    var url = 'file://' + Path.resolve(`${__dirname}/../../trambar/client/assets/splash-screen.html`);
+    Promise.each(config.widget.platform || [], (platform) => {
+        return Promise.each(platform.splash || [], (splash) => {
+            splash = splash.$;
+            var dstPath = Path.resolve(`./trambar/${splash.src}`);
+            var width = parseInt(splash.width);
+            var height = parseInt(splash.height);
+            switch (splash.density) {
+                case 'port-ldpi':
+                    width = 200;
+                    height = 320;
+                    break;
+                case 'land-ldpi':
+                    width = 320;
+                    height = 200;
+                    break;
+                case 'port-mdpi':
+                    width = 320;
+                    height = 480;
+                    break;
+                case 'land-mdpi':
+                    width = 480;
+                    height = 320;
+                    break;
+                case 'port-hdpi':
+                    width = 480;
+                    height = 800;
+                    break;
+                case 'land-hdpi':
+                    width = 800;
+                    height = 480;
+                    break;
+                case 'port-xhdpi':
+                    width = 720;
+                    height = 1280;
+                    break;
+                case 'land-xhdpi':
+                    width = 1280;
+                    height = 720;
+                    break;
+                case 'port-xxhdpi':
+                    width = 960;
+                    height = 1600;
+                    break;
+                case 'land-xxhdpi':
+                    width = 1600;
+                    height = 960;
+                    break;
+                case 'port-xxxhdpi':
+                    width = 1280;
+                    height = 1920;
+                    break;
+                case 'land-xxxhdpi':
+                    width = 1920;
+                    height = 1280;
+                    break;
+            }
+            if (width && height && dstPath) {
+                return createSplashScreen(url, width, height, dstPath);
+            }
+        });
+    });
+});
+
+function createSplashScreen(url, width, height, dstPath) {
+    console.log(`Creating ${dstPath}...`);
+    B(Phantom.create(['--ignore-ssl-errors=yes'])).then((phantom) => {
+        B(phantom.createPage()).then((page) => {
+            var properties = {
+                viewportSize: { width,  height },
+                clipRect: { left: 0, top: 0, width, height },
+            };
+            return Promise.each(_.keys(properties), (key) => {
+                return page.property(key, properties[key]);
+            }).then(() => {
+                return page.open(url);
+            }).then(() => {
+                return page.render(dstPath);
+            }).then(() => {
+                process.exit(0);
+            });
+        }).finally(() => {
+            phantom.exit();
+        });
+    });
+}
+
+function B(p) {
+    return Promise.resolve(p);
+}
