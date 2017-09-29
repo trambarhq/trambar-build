@@ -1,0 +1,56 @@
+#!/bin/bash
+set -e
+
+function download() {
+    local url=$1
+    local dest=$2
+    wget ${url} -O ${dest}
+}
+
+function extract() {
+    local langName=$1
+    local langCode=$2
+    local encoding=$3
+    # extract relevant files from tarball
+    tar -zxf ${sourceFile} --wildcards ${langCode}.*
+    # use iconv to convert from source encoding to UTF-8
+    cat ${langCode}.aff | iconv -f ${encoding} -t utf-8 > ${langName}.affix
+    # use sed to trim off the first line from .dic file and output from sort
+    cat ${langCode}.dic ${langCode}.dic_delta | iconv -f ${encoding} -t utf-8 | sed -n '1!p' | sort | sed -n '1!p' > ${langName}.dict
+    # remove files
+    rm ${langCode}.*
+}
+
+# download tarball from googlesource.com
+sourceFile="hunspell_dictionaries.tar.gz"
+download https://chromium.googlesource.com/chromium/deps/hunspell_dictionaries/+archive/master.tar.gz ${sourceFile}
+
+# convert files to format usable by PostgreSQL
+extract "czech" "cs_CZ" "iso-8859-2"
+extract "danish" "da_DK" "iso-8859-1"
+extract "dutch" "nl_NL" "utf-8"
+extract "spanish" "es_ES" "iso-8859-1"
+extract "english" "en_US" "utf-8"
+extract "french" "fr_FR" "utf-8"
+extract "german" "de_DE" "iso-8859-1"
+extract "italian" "it_IT" "iso-8859-15"
+extract "norwegian" "nb_NO" "iso-8859-1"
+extract "polish" "pl_PL" "iso-8859-2"
+extract "portuguese" "pt_PT" "iso-8859-1"
+extract "russian" "ru_RU" "koi8-r"
+extract "swedish" "sv_SE" "utf-8"
+extract "turkish" "tr" "utf-8"
+
+# download stop files not available in PostgreSQL
+download https://github.com/stopwords-iso/stopwords-cs/raw/master/stopwords-cs.txt czech.stop
+download https://github.com/stopwords-iso/stopwords-pl/raw/master/stopwords-pl.txt polish.stop
+
+# remove junk lines from stop files
+sed -i -r '/[åäã]/d' czech.stop
+sed -i -r '/[åäã]/d' polish.stop
+
+# remove unsupported flag from Dutch affix file
+sed -i -r '/FLAG long/d' dutch.affix
+
+# delete tarball
+rm ${sourceFile}

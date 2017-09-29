@@ -13,4 +13,13 @@ RUN apt-get -y update &&\
     apt-get -y remove wget curl git build-essential postgresql-server-dev-9.6 &&\
     apt-get clean
 
+# download dictionary files
+COPY fetch-dictionaries /usr/share/postgresql/9.6/tsearch_data
+RUN apt-get -y update &&\
+    apt-get -y install wget &&\
+    cd /usr/share/postgresql/9.6/tsearch_data &&\
+    ./fetch-dictionaries &&\
+    apt-get -y remove wget &&\
+    apt-get clean
+
 CMD ["postgres", "-c", "plv8.start_proc=plv8_init"]
