@@ -197,6 +197,8 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
-    command: [ nodemon, gitlab-adapter.js ]
+    command: [ nodemon, --inspect, gitlab-adapter.js ]
+    ports:
+      - 9229:9229
     depends_on:
       - postgres
