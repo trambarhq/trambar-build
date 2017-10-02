@@ -1,0 +1,1 @@
+webpackJsonp([1],{336:function(t,n,p){"use strict";t.exports=function(t){return{"app-name":"Трамбар","app-title":"Трамбар - Административная консоль"}}}});

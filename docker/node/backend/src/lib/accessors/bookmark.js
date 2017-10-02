@@ -1,0 +1,141 @@
+var _ = require('lodash');
+var Promise = require('bluebird');
+var HttpError = require('errors/http-error');
+var Data = require('accessors/data');
+
+module.exports = _.create(Data, {
+    schema: 'project',
+    table: 'bookmark',
+    columns: {
+        id: Number,
+        gn: Number,
+        deleted: Boolean,
+        ctime: String,
+        mtime: String,
+        details: Object,
+        story_id: Number,
+        user_ids: Array(Number),
+        target_user_id: Number,
+    },
+    criteria: {
+        id: Number,
+        story_id: Number,
+        user_ids: Array(Number),
+        target_user_id: Number,
+    },
+
+    /**
+     * Create table in schema
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Result>}
+     */
+    create: function(db, schema) {
+        var table = this.getTableName(schema);
+        var sql = `
+            CREATE TABLE ${table} (
+                id serial,
+                gn int NOT NULL DEFAULT 1,
+                deleted boolean NOT NULL DEFAULT false,
+                ctime timestamp NOT NULL DEFAULT NOW(),
+                mtime timestamp NOT NULL DEFAULT NOW(),
+                details jsonb NOT NULL DEFAULT '{}',
+                story_id int NOT NULL DEFAULT 0,
+                user_ids int[] NOT NULL DEFAULT '{}'::int[],
+                target_user_id int NOT NULL DEFAULT 0,
+                public boolean NOT NULL DEFAULT false,
+                PRIMARY KEY (id)
+            );
+        `;
+        return db.execute(sql);
+    },
+
+    /**
+     * Export database row to client-side code, omitting sensitive or
+     * unnecessary information
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<Object>} rows
+     * @param  {Object} credentials
+     * @param  {Object} options
+     *
+     * @return {Promise<Object>}
+     */
+    export: function(db, schema, rows, credentials, options) {
+        return Data.export.call(this, db, schema, rows, credentials, options).then((objects) => {
+            _.each(objects, (object, index) => {
+                var row = rows[index];
+                object.story_id = row.story_id;
+                object.user_ids = row.user_ids;
+                object.target_user_id = row.target_user_id;
+
+                // TODO: check user ids
+            });
+            return objects;
+        });
+    },
+
+    /**
+     * Import objects sent by client-side code, applying access control
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<Object>} objects
+     * @param  {Array<Object>} originals
+     * @param  {Object} credentials
+     * @param  {Object} options
+     *
+     * @return {Promise<Array>}
+     */
+    import: function(db, schema, objects, originals, credentials, options) {
+        return Data.import.call(this, db, schema, objects, originals, credentials).map((object, index) => {
+            var original = originals[index];
+            if (original) {
+                // the only operation permitted is the removal of the bookmark
+                if (object.deleted) {
+                    object = { id: original.id };
+                    if (original.target_user_id === credentials.user.id) {
+                        object.deleted = true;
+                    } else if (_.includes(original.user_ids, credentials.user.id)) {
+                        if (original.user_ids.length === 1) {
+                            object.deleted = true;
+                        } else {
+                            // someone else is recommending this story still
+                            object.user_ids =_.difference(original.user_ids, [ credentials.user.id ]);
+                        }
+                    } else {
+                        throw new HttpError(403);
+                    }
+                } else {
+                    throw new HttpError(400);
+                }
+                return object;
+            } else {
+                // must be the current user
+                if (!_.isEqual(object.user_ids, [ credentials.user.id ])) {
+                    throw new HttpError(403);
+                }
+                if (!object.story_id || !object.target_user_id) {
+                    throw new HttpError(400);
+                }
+
+                // see if there's a existing bookmark already
+                var criteria = {
+                    story_id: object.story_id,
+                    target_user_id: object.target_user_id,
+                };
+                return this.findOne(db, schema, criteria, 'id, user_ids').then((row) => {
+                    if (row) {
+                        // add the user to the list
+                        row.user_ids = _.union(row.user_ids, object.user_ids);
+                        object = row;
+                    }
+                    return object;
+                });
+            }
+        });
+    },
+});
