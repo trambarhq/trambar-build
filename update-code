@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+
+var File = require('./lib/file');
+var Folder = require('./lib/folder');
+var Git = require('./lib/git');
+var Shell = require('./lib/shell');
+
+Shell.chdir(__dirname);
+
+// update or create working folder
+if (Folder.exists('trambar')) {
+    Shell.chdir('trambar');
+    Git.pull({ depth: 1 });
+    Shell.chdir(__dirname);
+} else {
+    Git.clone('git@github.com:chung-leong/trambar.git', { depth: 1 })
+}
+
+// rebuild client-side JS code
+Shell.chdir('trambar/admin');
+Shell.run('npm install');
+Shell.run('npm run build');
+Shell.chdir(__dirname);
+
+Shell.chdir('trambar/client');
+Shell.run('npm install');
+Shell.run('npm run build');
+Shell.chdir(__dirname);
+
+// copy files into Docker folder
+Folder.copy('trambar/admin/www', 'docker/nginx/admin');
+Folder.copy('trambar/client/www', 'docker/nginx/client');
+Folder.copy('trambar/backend', 'docker/node/backend');
+Folder.copy('trambar/common', 'docker/node/common');
+File.copy('trambar/backend/package.json', 'docker/node/package.json');

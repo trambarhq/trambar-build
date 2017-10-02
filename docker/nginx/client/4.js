@@ -1,1 +1,1 @@
-webpackJsonp([4],{333:function(a,n,t){"use strict";a.exports=function(a){return{"app-name":"Trambar","app-title":"Trambar - Hallintakonsoli"}}}});
+webpackJsonp([4],{329:function(t,i,o){"use strict";t.exports=function(t){return{"app-name":"Trambar","bottom-nav-bookmarks":"Kirjanmerkit","bottom-nav-news":"Uutiset","bottom-nav-notifications":"Ilmoitukset","bottom-nav-people":"Ihmiset","bottom-nav-settings":"Asetukset","settings-language":"Kieli","settings-notification":"Ilmoittaminen","settings-projects":"Projektit","settings-user-profile":"Käyttäjäprofiili"}}}});

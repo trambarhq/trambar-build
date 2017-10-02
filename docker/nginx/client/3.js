@@ -1,1 +1,1 @@
-webpackJsonp([3],{334:function(t,a,n){"use strict";t.exports=function(t){return{"app-name":"Trambar","app-title":"Trambar - Administrativ konsoll"}}}});
+webpackJsonp([3],{330:function(t,e,n){"use strict";t.exports=function(t){return{"app-name":"Trambar","bottom-nav-bookmarks":"Bokmerker","bottom-nav-news":"Nyheter","bottom-nav-notifications":"Varslinger","bottom-nav-people":"Mennesker","bottom-nav-settings":"Innstillinger","settings-language":"Språk","settings-notification":"Melding","settings-projects":"Prosjekter","settings-user-profile":"Brukerprofil"}}}});
