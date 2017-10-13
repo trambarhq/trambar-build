@@ -111,6 +111,8 @@ services:
       - POSTGRES_USER=auth_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
       - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
+    extra_hosts:
+      - gitlab.test:172.18.0.1
     command: [ nodemon, auth-manager.js ]
     depends_on:
       - postgres
@@ -198,6 +200,8 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
+    extra_hosts:
+      - gitlab.test:172.18.0.1
     command: [ nodemon, gitlab-adapter.js ]
     depends_on:
       - postgres

@@ -2,7 +2,7 @@ version: "2"
 services:
   # Nginx web server
   nginx:
-    image: trambar-nginx
+    image: trambar/trambar-nginx
     ports:
       - 80:80
     depends_on:
@@ -10,7 +10,7 @@ services:
       - websocket_notifier
   # PostgreSQL database manager
   postgres:
-    image: trambar-postgres
+    image: trambar/trambar-postgres
     volumes:
       - ${TRAMBAR_DATABASE_FOLDER}:/var/lib/postgresql/data
     environment:
@@ -18,7 +18,7 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
   schema_manager:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -35,7 +35,7 @@ services:
       - postgres
   # Data server (Node.js)
   data_server:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -49,7 +49,7 @@ services:
       - postgres
   # Admin data server (Node.js)
   admin_data_server:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -63,7 +63,7 @@ services:
       - postgres
   # Authentication manager (Node.js)
   auth_manager:
-    image: trambar-node
+    image: trambar/trambar-node
     volumes:
       - ${TRAMBAR_HTPASSWD_FOLDER}:/etc/trambar
     environment:
@@ -80,7 +80,7 @@ services:
       - postgres
   # Media server (Node.js)
   media_server:
-    image: trambar-node
+    image: trambar/trambar-node
     volumes:
       - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
     environment:
@@ -96,7 +96,7 @@ services:
       - postgres
   # WebSocket Notifier (Node.js)
   websocket_notifier:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -110,7 +110,7 @@ services:
       - postgres
   # Live Data Invalidator (Node.js)
   live_data_invalidator:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -124,7 +124,7 @@ services:
       - postgres
   # Live Data Updater (Node.js)
   live_data_updater:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
@@ -138,7 +138,7 @@ services:
       - postgres
   # GitLab Adapter (Node.js)
   gitlab_adapter:
-    image: trambar-node
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
