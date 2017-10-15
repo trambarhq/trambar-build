@@ -2,7 +2,6 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 var Data = require('accessors/data');
-var Task = require('accessors/task');
 var HttpError = require('errors/http-error');
 
 module.exports = _.create(Data, {
@@ -23,6 +22,7 @@ module.exports = _.create(Data, {
         repo_id: Number,
         external_id: Number,
         published: Boolean,
+        ready: Boolean,
         ptime: String,
         public: Boolean,
     },
@@ -37,11 +37,11 @@ module.exports = _.create(Data, {
         repo_id: Number,
         external_id: Number,
         published: Boolean,
+        ready: Boolean,
         public: Boolean,
         time_range: String,
         newer_than: String,
         older_than: String,
-        ready: Boolean,
         search: Object,
     },
 
@@ -69,6 +69,7 @@ module.exports = _.create(Data, {
                 user_id int NOT NULL DEFAULT 0,
                 target_user_ids int[] NOT NULL,
                 published boolean NOT NULL DEFAULT false,
+                ready boolean NOT NULL DEFAULT false,
                 ptime timestamp,
                 public boolean NOT NULL DEFAULT false,
                 repo_id int,
@@ -92,7 +93,10 @@ module.exports = _.create(Data, {
      */
     watch: function(db, schema) {
         return Data.watch.call(this, db, schema).then(() => {
-            return Task.createUpdateTrigger(db, schema, this.table, 'updateResource');
+            return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'published' ]).then(() => {
+                var Task = require('accessors/task');
+                return Task.createUpdateTrigger(db, schema, 'updateReaction', 'updateResource', [ this.table, 'ready', 'published' ]);
+            });
         });
     },
 
@@ -111,7 +115,6 @@ module.exports = _.create(Data, {
             'time_range',
             'newer_than',
             'older_than',
-            'ready',
             'search',
         ];
         Data.apply.call(this, _.omit(criteria, special), query);
@@ -126,13 +129,6 @@ module.exports = _.create(Data, {
         }
         if (criteria.older_than !== undefined) {
             conds.push(`ptime < $${params.push(criteria.older_than)}`);
-        }
-        if (criteria.ready !== undefined) {
-            if (criteria.ready === true) {
-                conds.push(`ptime IS NOT NULL`);
-            } else {
-                conds.push(`ptime IS NULL`);
-            }
         }
         if (criteria.search) {
             return this.applyTextSearch(db, schema, criteria.search, query);
@@ -152,44 +148,41 @@ module.exports = _.create(Data, {
      * @return {Promise<Array>}
      */
     import: function(db, schema, objects, originals, credentials, options) {
-        return Data.import.call(this, db, schema, objects, originals, credentials).map((object, index) => {
-            var original = originals[index];
-            if (original) {
-                if (original.user_id !== credentials.user.id) {
-                    // can't modify an object that doesn't belong to the user
-                    throw new HttpError(403);
-                }
-                if (object.hasOwnProperty('user_id')) {
-                    if (object.user_id !== original.user_id) {
-                        // cannot make someone else the author
+        return Data.import.call(this, db, schema, objects, originals, credentials).then((objects) => {
+            _.each(objects, (reactionReceived, index) => {
+                var reactionBefore = originals[index];
+                if (reactionBefore) {
+                    if (reactionBefore.user_id !== credentials.user.id) {
+                        // can't modify an object that doesn't belong to the user
+                        throw new HttpError(403);
+                    }
+                    if (reactionReceived.hasOwnProperty('user_id')) {
+                        if (reactionReceived.user_id !== reactionBefore.user_id) {
+                            // cannot make someone else the author
+                            throw new HttpError(403);
+                        }
+                    }
+                } else {
+                    if (reactionReceived.id) {
+                        throw new HttpError(400);
+                    }
+                    if (!reactionReceived.hasOwnProperty('user_id')) {
+                        throw new HttpError(403);
+                    }
+                    if (reactionReceived.user_id !== credentials.user.id) {
+                        // the author must be the current user
                         throw new HttpError(403);
                     }
                 }
-            } else {
-                if (object.id) {
-                    throw new HttpError(400);
-                }
-                if (!object.hasOwnProperty('user_id')) {
-                    throw new HttpError(403);
-                }
-                if (object.user_id !== credentials.user.id) {
-                    // the author must be the current user
-                    throw new HttpError(403);
-                }
-            }
 
-            // set the ptime if published is set and there're no outstanding
-            // media tasks
-            if (object.published && !object.ptime) {
-                var payloadIds = getPayloadIds(object);
-                if (_.isEmpty(payloadIds)) {
-                    object.ptime = Moment().toISOString();
+                // set the ptime if published is set
+                if (reactionReceived.published && !reactionReceived.ptime) {
+                    reactionReceived.ptime = new String('NOW()');
                 }
-            }
-            return object;
+            });
+            return objects;
         });
     },
-
 
     /**
      * Export database row to client-side code, omitting sensitive or
@@ -219,6 +212,9 @@ module.exports = _.create(Data, {
                 }
                 if (row.external_id) {
                     object.external_id = row.external_id;
+                }
+                if (row.ready === false) {
+                    object.ready = false;
                 }
                 if (!object.published) {
                     // don't send text when object isn't published and
@@ -367,23 +363,4 @@ function applyClippingRectangle(url, clip, width, height, quality) {
     filters.push(`re${width}-${height}`);
     filters.push(`qu${quality}`)
     return `${url}/${filters.join('+')}`;
-}
-
-/**
- * Return task ids in the object
- *
- * @param  {Object} object
- *
- * @return {Array<Number>}
- */
-function getPayloadIds(object) {
-    var payloadIds = [];
-    if (object && object.details) {
-        _.each(object.details.resources, (res) => {
-            if (res.payload_id) {
-                payloadIds.push(res.payload_id);
-            }
-        });
-    }
-    return payloadIds;
 }

@@ -1,6 +1,7 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var HttpError = require('errors/http-error');
+var TagScanner = require('utils/tag-scanner');
 
 module.exports = {
     schema: 'global',
@@ -185,18 +186,14 @@ module.exports = {
             criteria.limit = criteria.limit;
         }
         if (typeof(criteria.order) === 'string') {
-            if (criteria.order) {
-                var parts = _.split(/\s+/, criteria.order);
-                var column = parts[0];
-                var dir = _.toLower(parts[1]);
-                if (this.columns.hasOwnProperty(column)) {
-                    query.order = column;
-                    if (dir === 'asc' || dir === 'desc') {
-                        query.order += ' ' + dir;
-                    }
+            var parts = _.split(/\s+/, criteria.order);
+            var column = parts[0];
+            var dir = _.toLower(parts[1]);
+            if (this.columns.hasOwnProperty(column)) {
+                query.order = column;
+                if (dir === 'asc' || dir === 'desc') {
+                    query.order += ' ' + dir;
                 }
-            } else {
-                query.order = undefined;
             }
         }
     },
@@ -216,10 +213,8 @@ module.exports = {
         var query = {
             conditions: [],
             parameters: [],
-            order: 'id DESC',
             columns: columns,
             table: table,
-            limit: 50000
         };
         if (this.apply.length === 4) {
             // the four-argument form of the function works asynchronously
@@ -608,6 +603,13 @@ module.exports = {
      * @return {Promise}
      */
     applyTextSearch(db, schema, search, query) {
+        var ts = parseSearchQuery(search.text);
+        if (!_.isEmpty(ts.tags)) {
+            query.conditions.push(`tags @> $${query.parameters.push(ts.tags)}`);
+        }
+        if (!ts.query) {
+            return Promise.resolve();
+        }
         // obtain languages for which we have indices
         return this.getTextSearchLanguages(db, schema).then((languageCodes) => {
             if (_.isEmpty(languageCodes)) {
@@ -616,12 +618,11 @@ module.exports = {
             }
             var lang = search.lang;
             var searchText = search.text;
-            var value = `$${query.parameters.push(searchText)}`;
+            var queryText = `$${query.parameters.push(ts.query)}`;
 
             // search query in each language
             var tsQueries = _.map(languageCodes, (code) => {
-                // TODO: handle query in a more sophisticated manner
-                return `plainto_tsquery('search_${code}', ${value}) AS query_${code}`;
+                return `to_tsquery('search_${code}', ${queryText}) AS query_${code}`;
             });
             // text vector in each language
             var tsVectors = _.map(languageCodes, (code) => {
@@ -733,7 +734,6 @@ module.exports = {
             }
             // create dictionaries for language first
             return db.createDictionaries(code).then((dicts) => {
-                console.log(dicts);
                 var sql = `
                     CREATE TEXT SEARCH CONFIGURATION search_${code}
                     (COPY = pg_catalog.english);
@@ -749,6 +749,72 @@ module.exports = {
             });
         });
     },
+
+    /**
+     * Create a trigger that reconcile locally-made changes to details.resources
+     * with data sent from remote client
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<String>}
+     *
+     * @return {Promise}
+     */
+    createResourceCoalescenceTrigger: function(db, schema, arguments) {
+        var table = this.getTableName(schema);
+        // trigger name needs to be smaller than "indicateDataChange" so it runs first
+        var sql = [
+            `
+                CREATE TRIGGER "coalesceResourcesOnInsert"
+                BEFORE INSERT ON ${table}
+                FOR EACH ROW
+                EXECUTE PROCEDURE "coalesceResources"(${arguments.join(', ')});
+            `,
+            `
+                CREATE TRIGGER "coalesceResourcesOnUpdate"
+                BEFORE UPDATE ON ${table}
+                FOR EACH ROW
+                EXECUTE PROCEDURE "coalesceResources"(${arguments.join(', ')});
+            `
+        ];
+        return db.execute(sql.join('\n')).return(true);
+    },
 };
 
 var searchLanguagesPromises = {};
+
+function parseSearchQuery(text) {
+    var tags = [];
+    var searchWords = [];
+    var tokens = _.split(_.trim(text), /\s+/);
+    _.each(tokens, (token, index, list) => {
+        if (TagScanner.isTag(token)) {
+            tags.push(_.toLower(token));
+        } else {
+            var prefix = '';
+            if (/^[-!]/.test(token)) {
+                prefix = '!';
+            }
+            var suffix = '';
+            if (/\*$/.test(token)) {
+                suffix = ':*';
+            }
+            var searchWord = removePunctuations(token);
+            if (searchWord) {
+                searchWords.push(prefix + searchWord + suffix);
+            }
+        }
+    });
+    var query = searchWords.join(' & ');
+    return { tags, query };
+}
+
+var punctRE = /[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*+,\-.\/:;<=>?@\[\]^_`{|}~]/g;
+var characters = 'a-zA-Z';
+var digits = '0-9';
+
+var regExp = new RegExp(`[@#][${characters}][${digits}${characters}]*`, 'g');
+
+function removePunctuations(s) {
+    return s.replace(punctRE, '');
+}

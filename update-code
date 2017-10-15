@@ -10,7 +10,8 @@ Shell.chdir(__dirname);
 // update or create working folder
 if (Folder.exists('trambar')) {
     Shell.chdir('trambar');
-    Git.pull({ depth: 1 });
+    Git.reset();
+    Git.rebase();
     Shell.chdir(__dirname);
 } else {
     Git.clone('git@github.com:chung-leong/trambar.git', { depth: 1 })

@@ -104,6 +104,8 @@ exports.matchObject = function(filters, object) {
                     return false;
                 }
                 break;
+            case 'tz_offset':
+                break;
             default:
                 if (!matchScalars(filters[name], object[name])) {
                     return false;
@@ -111,6 +113,15 @@ exports.matchObject = function(filters, object) {
         }
     }
     return true;
+};
+
+exports.transferProps = function(src, dst) {
+    for (var name in src) {
+        // copy property unless it's set already
+        if (dst[name] == null) {
+            dst[name] = src[name];
+        }
+    }
 };
 
 function matchTimeRanges(a, b) {

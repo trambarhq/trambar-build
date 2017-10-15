@@ -208,7 +208,6 @@ function handleDatabaseEvent(event) {
 
 function handleDatabaseSyncRequest(event) {
     var db = database;
-    console.log('handleDatabaseSyncRequest', event);
     var table = event.table;
     var criteria = event.criteria;
     if (table === 'project') {
@@ -252,9 +251,9 @@ function handleDatabaseSyncRequest(event) {
             });
         } else {
             return User.find(db, 'global', criteria, '*').each((user) => {
-                return Server.find(db, 'global', { id: repo.server_id, type: 'gitlab' }, '*').each((server) => {
+                return Server.find(db, 'global', { id: user.server_id, type: 'gitlab' }, '*').each((server) => {
                     return taskQueue.schedule(`update_user:${user.id}`, () => {
-                        return UserImporter.updateUser(db, user);
+                        return UserImporter.updateUser(db, server, user);
                     });
                 });
             });
@@ -266,7 +265,7 @@ function handleHookCallback(req, res) {
     var repoId = req.params.repoId;
     var projectId = req.params.projectId;
     var event = req.body;
-    console.log('Incoming: ', event);
+    //console.log('Incoming: ', event);
     var db = database;
     return Repo.findOne(db, 'global', { id: repoId }, '*').then((repo) => {
         return Project.findOne(db, 'global', { id: projectId }, '*').then((project) => {

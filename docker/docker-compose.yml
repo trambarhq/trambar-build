@@ -5,6 +5,9 @@ services:
     image: trambar/trambar-nginx
     ports:
       - 80:80
+      - 443:443
+    volumes:
+      - .:/etc/nginx/extra
     depends_on:
       - data_server
       - websocket_notifier

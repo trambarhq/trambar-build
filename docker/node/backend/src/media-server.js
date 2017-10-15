@@ -1,6 +1,6 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var FS = Promise.promisifyAll(require('fs'));
+var FS = require('fs');
 var Express = require('express');
 var BodyParser = require('body-parser');
 var Multer  = require('multer');
@@ -10,6 +10,7 @@ var Database = require('database');
 var Task = require('accessors/task');
 var HttpError = require('errors/http-error');
 
+var CacheFolders = require('media-server/cache-folders');
 var FileManager = require('media-server/file-manager');
 var ImageManager = require('media-server/image-manager');
 var VideoManager = require('media-server/video-manager');
@@ -17,10 +18,7 @@ var WebsiteCapturer = require('media-server/website-capturer');
 var StockPhotoImporter = require('media-server/stock-photo-importer');
 
 var server;
-var cacheFolder = '/var/cache/media';
-var imageCacheFolder = `${cacheFolder}/images`;
-var videoCacheFolder = `${cacheFolder}/videos`;
-var audioCacheFolder = `${cacheFolder}/audios`;
+
 
 function start() {
     return new Promise((resolve, reject) => {
@@ -39,9 +37,9 @@ function start() {
         app.post('/media/stream/:jobId', upload.single('file'), handleStreamAppend);
         app.post('/media/stream', upload.single('file'), handleStreamCreate);
 
-        app.post('/internal/import', handleImageImport);
+        app.post('/internal/import', upload.single('file'), handleImageImport);
 
-        createCacheFolders();
+        CacheFolders.create();
         StockPhotoImporter.importPhotos();
 
         server = app.listen(80, () => {
@@ -129,7 +127,7 @@ function handleImageFiltersRequest(req, res) {
     if (!format || format === 'jpg') {
         format = 'jpeg';
     }
-    var path = `${imageCacheFolder}/${hash}`;
+    var path = `${CacheFolders.image}/${hash}`;
     return ImageManager.applyFilters(path, filters, format).then((buffer) => {
         sendFile(res, buffer, format);
     }).catch((err) => {
@@ -145,7 +143,7 @@ function handleImageFiltersRequest(req, res) {
  */
 function handleImageOriginalRequest(req, res) {
     var filename = req.params.filename;
-    var path = `${imageCacheFolder}/${filename}`;
+    var path = `${CacheFolders.image}/${filename}`;
     ImageManager.getImageMetadata(path).then((metadata) => {
         res.type(metadata.format).sendFile(path);
     });
@@ -159,7 +157,7 @@ function handleImageOriginalRequest(req, res) {
  */
 function handleVideoRequest(req, res) {
     var filename = req.params.filename;
-    var path = `${videoCacheFolder}/${filename}`;
+    var path = `${CacheFolders.video}/${filename}`;
     res.sendFile(path);
 }
 
@@ -171,7 +169,7 @@ function handleVideoRequest(req, res) {
  */
 function handleAudioRequest(req, res) {
     var filename = req.params.filename;
-    var path = `${audioCacheFolder}/${filename}`;
+    var path = `${CacheFolders.audio}/${filename}`;
     res.sendFile(path);
 }
 
@@ -191,17 +189,16 @@ function handleWebsiteScreenshot(req, res) {
         if (!url) {
             throw new HttpError(400);
         }
-        var tempPath = FileManager.makeTempPath(imageCacheFolder, url, '.jpeg');
+        var tempPath = FileManager.makeTempPath(CacheFolders.image, url, '.jpeg');
         WebsiteCapturer.createScreenshot(url, tempPath).then((title) => {
             // rename it to its MD5 hash once we have the data
             return FileManager.hashFile(tempPath).then((hash) => {
-                var dstPath = `${imageCacheFolder}/${hash}`;
+                var dstPath = `${CacheFolders.image}/${hash}`;
                 return FileManager.moveFile(tempPath, dstPath).then(() => {
                     return ImageManager.getImageMetadata(dstPath).then((metadata) => {
                         var url = `/media/images/${hash}`;
                         var width = metadata.width;
                         var height = metadata.height;
-                        var clip = ImageManager.getDefaultClippingRect(width, height, 'top');
                         var details = { poster_url: url, title, width, height };
                         return saveTaskOutcome(schema, taskId, details);
                     }).then(() => {
@@ -232,7 +229,7 @@ function handleImageUpload(req, res) {
     var file = req.file;
     var url = req.body.external_url;
     return checkTaskToken(schema, taskId, req.query.token).then(() => {
-        return FileManager.preserveFile(file, url, imageCacheFolder).then((imageFile) => {
+        return FileManager.preserveFile(file, url, CacheFolders.image).then((imageFile) => {
             if (!imageFile) {
                 throw new HttpError(400);
             }
@@ -241,8 +238,7 @@ function handleImageUpload(req, res) {
                 var format = metadata.format;
                 var width = metadata.width;
                 var height = metadata.height;
-                var clip = ImageManager.getDefaultClippingRect(width, height, 'center');
-                var details = { url, format, width, height, clip };
+                var details = { url, format, width, height };
                 return saveTaskOutcome(schema, taskId, details);
             });
             return { url };
@@ -261,16 +257,18 @@ function handleImageUpload(req, res) {
  * @param  {Response} res
  */
 function handleImageImport(req, res) {
-    var file = _.get(req.files, 'file.0');
+    var file = req.file;
     var url = req.body.external_url;
-    return FileManager.preserveFile(file, url, imageCacheFolder).then((imageFile) => {
+    return FileManager.preserveFile(file, url, CacheFolders.image).then((imageFile) => {
+        if (!imageFile) {
+            throw new HttpError(400);
+        }
         return ImageManager.getImageMetadata(imageFile.path).then((metadata) => {
             var url = `/media/images/${imageFile.hash}`;
             var format = metadata.format;
             var width = metadata.width;
             var height = metadata.height;
-            var clip = ImageManager.getDefaultClippingRect(width, height, 'center');
-            return { url, format, width, height, clip };
+            return { url, format, width, height };
         });
     }).then((results) => {
         sendJson(res, results);
@@ -328,12 +326,7 @@ function handleMediaUpload(req, res, type) {
             // URL won't be known until after file has fully uploaded
             return { url: undefined };
         } else {
-            var dstFolder;
-            if (type === 'video') {
-                dstFolder = videoCacheFolder;
-            } else if (type === 'audio') {
-                dstFolder = audioCacheFolder;
-            }
+            var dstFolder = CacheFolders[type];
             return FileManager.preserveFile(file, url, dstFolder).then((mediaFile) => {
                 if (!saved) {
                     throw HttpError(400);
@@ -351,16 +344,14 @@ function handleMediaUpload(req, res, type) {
             })
         }
     }).then((results) => {
-        return FileManager.preserveFile(posterFile, posterUrl, imageCacheFolder).then((poster) => {
+        return FileManager.preserveFile(posterFile, posterUrl, CacheFolders.image).then((poster) => {
             if (poster) {
                 var posterUrl = `/media/images/${poster.hash}`;
                 ImageManager.getImageMetadata(poster.path).then((metadata) => {
-                    var clip = ImageManager.getDefaultClippingRect(width, height, 'center');
                     var details = {
                         poster_url: url,
                         width: metadata.width,
                         height: metadata.height,
-                        clip,
                     };
                     return saveTaskProgress(schema, taskId, details);
                 });
@@ -425,18 +416,6 @@ function handleStreamAppend(req, res) {
         sendJson(res, { status: 'OK' });
     }).catch((err) => {
         sendError(res, err);
-    });
-}
-
-/**
- * Create cache folders if they don't exist yet
- */
-function createCacheFolders() {
-    var folders = [ cacheFolder, imageCacheFolder, videoCacheFolder, audioCacheFolder ];
-    _.each(folders, (folder) => {
-        if (!FS.existsSync(folder)) {
-            FS.mkdirSync(folder);
-        }
     });
 }
 

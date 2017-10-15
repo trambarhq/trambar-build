@@ -93,7 +93,8 @@ function fetchDirtyListings(db) {
     return getProjectSchemas(db).each((schema) => {
         var criteria = { dirty: true };
         return Listing.find(db, schema, criteria, 'id, atime').each((row) => {
-            return addToListingQueue(schema, row.id, row.atime);
+            addToListingQueue(schema, row.id, row.atime);
+            return null;
         });
     });
 }
@@ -269,6 +270,7 @@ function updateListing(schema, id) {
         // script won't waste time performing the same work
         return Listing.lock(db, schema, id, '1 minute', 'gn, type, filters, details').then((row) => {
             var criteria = _.extend({}, row.filters, {
+                published: true,
                 ready: true,
                 limit: 5000,
             });

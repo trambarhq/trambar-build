@@ -28,13 +28,26 @@ exports.hasCandidates.args = 'details jsonb, storyIds int[]';
 exports.hasCandidates.ret = 'boolean';
 exports.hasCandidates.flags = 'IMMUTABLE';
 
+/**
+ * Return a list of payload ids contained in the object
+ *
+ * @param  {Object} details
+ *
+ * @return {Array<Number>|null}
+ */
 exports.payloadIds = function(details) {
     var payloadIds = [];
     var resources = details.resources;
     if (resources instanceof Array) {
         for (var i = 0; i < resources.length; i++) {
             var res = resources[i];
-            payloadIds.push(res.payload_id);
+            if (res.payload_id) {
+                payloadIds.push(res.payload_id);
+            }
+        }
+    } else {
+        if (details.payload_id) {
+            payloadIds.push(details.payload_id);
         }
     }
     return (payloadIds.length > 0) ? payloadIds : null;
@@ -42,6 +55,38 @@ exports.payloadIds = function(details) {
 exports.payloadIds.args = 'details jsonb';
 exports.payloadIds.ret = 'int[]';
 exports.payloadIds.flags = 'IMMUTABLE';
+
+/**
+ * Copy properties of payload into matching resource
+ *
+ * @param  {Object} details
+ * @param  {Number} payload
+ *
+ * @return {Object}
+ */
+exports.updatePayload = function(details, payload) {
+    var resources = details.resources;
+    if (resources) {
+        for (var i = 0; i < resources.length; i++) {
+            var res = resources[i];
+            if (res.payload_id === payload.id) {
+                transferProps(payload.details, res);
+                res.ready = (payload.completion === 100);
+            }
+        }
+    } else {
+        // info is perhaps stored in the details object itself
+        var res = details;
+        if (res.payload_id === payload.id) {
+            transferProps(payload.details, res);
+            res.ready = (payload.completion === 100);
+        }
+    }
+    return details;
+};
+exports.updatePayload.args = 'details jsonb, payload jsonb';
+exports.updatePayload.ret = 'jsonb';
+exports.updatePayload.flags = 'IMMUTABLE';
 
 /**
  * Return user id associated with authorization token--if it's still valid
