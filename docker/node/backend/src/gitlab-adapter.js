@@ -2,6 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Express = require('express');
 var BodyParser = require('body-parser');
+var DNSCache = require('dnscache');
 var Database = require('database');
 var TaskQueue = require('utils/task-queue');
 
@@ -22,6 +23,8 @@ var User = require('accessors/user');
 
 var server;
 var database;
+
+DNSCache({ enable: true, ttl: 300, cachesize: 100 });
 
 function start() {
     return Database.open(true).then((db) => {
@@ -167,7 +170,7 @@ function handleDatabaseEvent(event) {
                             }
                             return taskQueue.schedule(`import_repo_events:${repo.id}`, () => {
                                 // make sure the project-specific schema exists
-                                return db.need(project.name, 5000).then(() => {
+                                return db.need(project.name).then(() => {
                                     return EventImporter.importEvents(db, server, repo, project);
                                 });
                             });
