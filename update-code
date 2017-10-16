@@ -11,6 +11,7 @@ Shell.chdir(__dirname);
 if (Folder.exists('trambar')) {
     Shell.chdir('trambar');
     Git.reset();
+    Git.fetch();
     Git.rebase();
     Shell.chdir(__dirname);
 } else {
