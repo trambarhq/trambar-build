@@ -8,6 +8,7 @@ services:
       - 443:443
     volumes:
       - .:/etc/nginx/extra
+      - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
     depends_on:
       - data_server
       - websocket_notifier
