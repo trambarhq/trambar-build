@@ -2,22 +2,19 @@ version: "2"
 services:
   # Nginx web server
   nginx:
-    image: trambar-nginx-dev
+    image: trambar/trambar-nginx
     ports:
       - 80:80
+      - 443:443
     volumes:
-      - ./nginx/conf.d:/etc/nginx/conf.d
-      - ../../trambar/admin/www:/var/www/trambar/admin
-      - ../../trambar/client/www:/var/www/trambar/client
       - .:/etc/nginx/extra
+      - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
     depends_on:
       - data_server
       - websocket_notifier
   # PostgreSQL database manager
   postgres:
-    image: trambar-postgres
-    ports:
-      - 5432:5432
+    image: trambar/trambar-postgres
     volumes:
       - ${TRAMBAR_DATABASE_FOLDER}:/var/lib/postgresql/data
     environment:
@@ -25,14 +22,10 @@ services:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
   schema_manager:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
@@ -40,171 +33,115 @@ services:
       - DATABASE_ADMIN_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
       - DATABASE_CLIENT_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
       - DATABASE_AUTH_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
-    command: [ nodemon, schema-manager.js ]
-    depends_on:
-      - postgres
-  # WebDAV server
-  webdav_server:
-    image: trambar-node-dev
-    ports:
-      - 8000:8000
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
-    environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
-      - POSTGRES_HOST=postgres
-      - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
-    command: [ nodemon, webdav-server.js ]
+    command: [ node, schema-manager.js ]
     depends_on:
       - postgres
   # Data server (Node.js)
   data_server:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, data-server.js ]
+    command: [ node, data-server.js ]
     depends_on:
       - postgres
   # Admin data server (Node.js)
   admin_data_server:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
-    command: [ nodemon, data-server.js ]
+    command: [ node, data-server.js ]
     depends_on:
       - postgres
   # Authentication manager (Node.js)
   auth_manager:
-    image: trambar-node-dev
+    image: trambar/trambar-node
     volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
       - ${TRAMBAR_HTPASSWD_FOLDER}:/etc/trambar
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=auth_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
       - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
-    extra_hosts:
-      - gitlab.test:172.18.0.1
-    command: [ nodemon, auth-manager.js ]
+    command: [ node, auth-manager.js ]
     depends_on:
       - postgres
   # Media server (Node.js)
   media_server:
-    image: trambar-node-dev
+    image: trambar/trambar-node
     volumes:
-      - ../../trambar/backend/media:/opt/trambar/backend/media
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
       - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, media-server.js ]
-    extra_hosts:
-      - gitlab.test:172.18.0.1
+    command: [ node, media-server.js ]
     depends_on:
       - postgres
   # WebSocket Notifier (Node.js)
   websocket_notifier:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, websocket-notifier.js ]
+    command: [ node, websocket-notifier.js ]
     depends_on:
       - postgres
   # Live Data Invalidator (Node.js)
   live_data_invalidator:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, live-data-invalidator.js ]
+    command: [ node, live-data-invalidator.js ]
     depends_on:
       - postgres
   # Live Data Updater (Node.js)
   live_data_updater:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, live-data-updater.js ]
+    command: [ node, live-data-updater.js ]
     depends_on:
       - postgres
   # GitLab Adapter (Node.js)
   gitlab_adapter:
-    image: trambar-node-dev
-    volumes:
-      - ../../trambar/backend/src:/opt/trambar/backend/src
-      - ../../trambar/common/src:/opt/trambar/common/src
+    image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
-      - NODE_ENV=development
-      - DEPLOYMENT=${TRAMBAR_DEPLOYMENT}
+      - NODE_ENV=production
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
-    extra_hosts:
-      - gitlab.test:172.18.0.1
-    command: [ nodemon, gitlab-adapter.js ]
+    command: [ node, gitlab-adapter.js ]
     depends_on:
       - postgres
