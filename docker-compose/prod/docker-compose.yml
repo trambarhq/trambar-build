@@ -8,6 +8,7 @@ services:
       - 443:443
     volumes:
       - .:/etc/nginx/extra
+      - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
       - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
     depends_on:
       - data_server
@@ -26,6 +27,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
@@ -42,6 +45,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -55,6 +60,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
@@ -70,6 +77,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=auth_role
@@ -86,6 +95,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -99,6 +110,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -112,6 +125,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -125,6 +140,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -138,6 +155,8 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=production
+      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
+      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
