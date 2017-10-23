@@ -14,7 +14,7 @@ services:
       - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
     depends_on:
       - data_server
-      - websocket_notifier
+      - event_notifier
   # PostgreSQL database manager
   postgres:
     image: trambar-postgres
@@ -147,7 +147,7 @@ services:
     depends_on:
       - postgres
   # WebSocket Notifier (Node.js)
-  websocket_notifier:
+  event_notifier:
     image: trambar-node-dev
     volumes:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
@@ -161,7 +161,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, websocket-notifier.js ]
+    command: [ nodemon, event-notifier.js ]
     depends_on:
       - postgres
   # Live Data Invalidator (Node.js)

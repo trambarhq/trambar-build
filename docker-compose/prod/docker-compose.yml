@@ -12,7 +12,7 @@ services:
       - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
     depends_on:
       - data_server
-      - websocket_notifier
+      - event_notifier
   # PostgreSQL database manager
   postgres:
     image: trambar/trambar-postgres
@@ -105,7 +105,7 @@ services:
     depends_on:
       - postgres
   # WebSocket Notifier (Node.js)
-  websocket_notifier:
+  event_notifier:
     image: trambar/trambar-node
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
@@ -116,7 +116,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ node, websocket-notifier.js ]
+    command: [ node, event-notifier.js ]
     depends_on:
       - postgres
   # Live Data Invalidator (Node.js)
