@@ -52,6 +52,21 @@ module.exports = _.create(Data, {
     },
 
     /**
+     * Attach triggers to the table.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Boolean>}
+     */
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'purpose', 'user_id' ];
+            return this.createNotificationTriggers(db, schema, propNames);
+        });
+    },
+
+    /**
      * Attach triggers to this table, also add trigger on task so details
      * are updated when tasks complete
      *

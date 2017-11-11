@@ -17,6 +17,7 @@ module.exports = _.create(Data, {
         repo_ids: Array(Number),
         user_ids: Array(Number),
         settings: Object,
+        archived: Boolean,
     },
     criteria: {
         id: Number,
@@ -24,6 +25,7 @@ module.exports = _.create(Data, {
         name: String,
         repo_ids: Array(Number),
         user_ids: Array(Number),
+        archived: Boolean,
     },
 
     /**
@@ -44,12 +46,15 @@ module.exports = _.create(Data, {
                 ctime timestamp NOT NULL DEFAULT NOW(),
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
-                name varchar(64) NOT NULL DEFAULT '',
+                name varchar(128) NOT NULL DEFAULT '',
                 repo_ids int[] NOT NULL DEFAULT '{}'::int[],
                 user_ids int[] NOT NULL DEFAULT '{}'::int[],
+                role_ids int[],
                 settings jsonb NOT NULL DEFAULT '{}',
+                archived boolean NOT NULL DEFAULT false,
                 PRIMARY KEY (id)
             );
+            CREATE UNIQUE INDEX ON ${table} (name) WHERE deleted = false;
             CREATE INDEX ON ${table} USING gin(("payloadIds"(details))) WHERE "payloadIds"(details) IS NOT NULL;
         `;
         return db.execute(sql);
@@ -74,8 +79,7 @@ module.exports = _.create(Data, {
     },
 
     /**
-     * Attach triggers to this table, also add trigger on task so details
-     * are updated when tasks complete
+     * Attach triggers to the table.
      *
      * @param  {Database} db
      * @param  {String} schema
@@ -83,8 +87,10 @@ module.exports = _.create(Data, {
      * @return {Promise<Boolean>}
      */
     watch: function(db, schema) {
-        return Data.watch.call(this, db, schema).then(() => {
-            return this.createResourceCoalescenceTrigger(db, schema, []).then(() => {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'deleted', 'name', 'repo_ids', 'user_ids' ];
+            return this.createNotificationTriggers(db, schema, propNames).then(() => {
+                // completion of tasks will automatically update details->resources
                 var Task = require('accessors/task');
                 return Task.createUpdateTrigger(db, schema, 'updateProject', 'updateResource', [ this.table ]);
             });
@@ -147,6 +153,9 @@ module.exports = _.create(Data, {
                 } else {
                     object.settings = _.pick(row.settings, 'access_control');
                 }
+                if (row.archived) {
+                    object.archived = row.archived;
+                }
             });
             return objects;
         });
@@ -167,6 +176,9 @@ module.exports = _.create(Data, {
     import: function(db, schema, objects, originals, credentials, options) {
         return Data.import.call(this, db, schema, objects, originals, credentials).map((projectReceived, index) => {
             var projectBefore = originals[index];
+            if (projectReceived.name === 'global' || projectReceived.name === 'admin') {
+                throw new HttpError(409);
+            }
             this.checkWritePermission(projectReceived, projectBefore, credentials);
             return projectReceived;
         });
@@ -299,7 +311,7 @@ module.exports = _.create(Data, {
      * @return {Boolean}
      */
     checkAccess: function(project, user, access) {
-        if (!project || project.deleted) {
+        if (!project) {
             return false;
         }
         // project member and admins have full access

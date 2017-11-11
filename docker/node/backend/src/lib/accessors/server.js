@@ -14,6 +14,7 @@ module.exports = _.create(Data, {
         details: Object,
         type: String,
         name: String,
+        disabled: Boolean,
         settings: Object,
     },
     criteria: {
@@ -21,6 +22,7 @@ module.exports = _.create(Data, {
         deleted: Boolean,
         type: String,
         name: String,
+        disabled: Boolean,
     },
 
     /**
@@ -41,11 +43,13 @@ module.exports = _.create(Data, {
                 ctime timestamp NOT NULL DEFAULT NOW(),
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
-                name varchar(64) NOT NULL DEFAULT '',
+                name varchar(128) NOT NULL DEFAULT '',
                 type varchar(64),
+                disabled boolean NOT NULL DEFAULT false,
                 settings jsonb NOT NULL DEFAULT '{}',
                 PRIMARY KEY (id)
             );
+            CREATE UNIQUE INDEX ON ${table} (name) WHERE deleted = false;
         `;
         return db.execute(sql);
     },
@@ -69,6 +73,25 @@ module.exports = _.create(Data, {
     },
 
     /**
+     * Attach triggers to the table.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Boolean>}
+     */
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'type' ];
+            return this.createNotificationTriggers(db, schema, propNames).then(() => {
+                // completion of tasks will automatically update details->resources
+                var Task = require('accessors/task');
+                return Task.createUpdateTrigger(db, schema, 'updateServer', 'updateResource', [ this.table ]);
+            });
+        });
+    },
+
+    /**
      * Export database row to client-side code, omitting sensitive or
      * unnecessary information
      *
@@ -88,6 +111,11 @@ module.exports = _.create(Data, {
                 object.name = row.name;
                 if (credentials.unrestricted) {
                     object.settings = _.obscure(row.settings, sensitiveSettings);
+                    object.disabled = row.disabled;
+                } else {
+                    if (row.disabled) {
+                        object.disabled = row.disabled;
+                    }
                 }
             });
             return objects;

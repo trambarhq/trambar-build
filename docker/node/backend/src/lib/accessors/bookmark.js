@@ -19,6 +19,7 @@ module.exports = _.create(Data, {
     },
     criteria: {
         id: Number,
+        deleted: Boolean,
         story_id: Number,
         user_ids: Array(Number),
         target_user_id: Number,
@@ -50,6 +51,21 @@ module.exports = _.create(Data, {
             );
         `;
         return db.execute(sql);
+    },
+
+    /**
+     * Attach triggers to the table.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Boolean>}
+     */
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'story_id', 'user_ids', 'target_user_id', 'public' ];
+            return this.createNotificationTriggers(db, schema, propNames);
+        });
     },
 
     /**

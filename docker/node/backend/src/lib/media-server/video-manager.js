@@ -5,8 +5,14 @@ var ChildProcess = require('child_process');
 var Crypto = require('crypto');
 
 var CacheFolders = require('media-server/cache-folders');
+var FileManager = require('media-server/file-manager');
 
 exports.createJobId = createJobId;
+exports.startTranscodingJob = startTranscodingJob;
+exports.findTranscodingJob = findTranscodingJob;
+exports.transcodeSegment = transcodeSegment;
+exports.endTranscodingJob = endTranscodingJob;
+exports.awaitTranscodingJob = awaitTranscodingJob;
 
 /**
  * Create a random job id
@@ -53,14 +59,24 @@ function startTranscodingJob(srcPath, type, jobId) {
     };
     if (type === 'video') {
         job.profiles = {
-            '2500kbps': {
-                videoBitrate: 2500 * 1000,
-                audioBitrate: 128 * 1000,
+            '320x240': {
+                videoBitrate: 250 * 1000,
+                videoScaling: {
+                    width: 320,
+                    height: 240
+                },
+                audioBitrate: 64 * 1000,
+                audioChannels: 1,
                 format: 'mp4',
             },
-            '1000kbps': {
+            '640x480': {
                 videoBitrate: 1000 * 1000,
+                videoScaling: {
+                    width: 640,
+                    height: 480,
+                },
                 audioBitrate: 128 * 1000,
+                audioChannels: 2,
                 format: 'mp4',
             },
         };
@@ -102,7 +118,12 @@ function startTranscodingJob(srcPath, type, jobId) {
         // add queue and other variables needed for streaming in video
         job.queue = [];
         job.working = false;
-        job.finished = false;
+        job.closed = false;
+        job.progress = 0;
+        job.totalByteCount = 0;
+        job.processedByteCount = 0;
+        job.lastProgressTime = null;
+        job.onProgress = null;
 
         // create write stream to save original
         job.originalFile = `${job.destination}/${jobId}`;
@@ -120,7 +141,7 @@ function startTranscodingJob(srcPath, type, jobId) {
             });
         });
 
-        job.promise.then(() => {
+        job.promise = job.promise.then(() => {
             // rename the files once we have the MD5 hash
             return Promise.join(hashPromise, filePromise, (hash) => {
                 var originalFile = _.replace(job.originalFile, job.jobId, hash);
@@ -130,7 +151,7 @@ function startTranscodingJob(srcPath, type, jobId) {
                 var srcFiles = _.concat(job.originalFile, _.values(job.outputFiles));
                 var dstFiles = _.concat(originalFile, _.values(outputFiles));
                 return Promise.map(srcFiles, (srcFile, index) => {
-                    return moveFile(srcFile, dstFiles[index]);
+                    return FileManager.moveFile(srcFile, dstFiles[index]);
                 }).then(() => {
                     job.originalFile = originalFile;
                     job.outputFiles = outputFiles;
@@ -158,10 +179,12 @@ function awaitTranscodingJob(job) {
  * Add a file to the transcode queue
  *
  * @param  {Object} job
- * @param  {ReadableStream} file
+ * @param  {ReadableStream} inputStream
+ * @param  {Number} segmentSize
  */
-function transcodeSegment(job, inputStream) {
+function transcodeSegment(job, inputStream, segmentSize) {
     job.queue.push(inputStream);
+    job.totalByteCount += segmentSize;
     if (!job.working) {
         processNextStreamSegment(job);
     }
@@ -173,7 +196,8 @@ function transcodeSegment(job, inputStream) {
  * @param  {Object} job
  */
 function endTranscodingJob(job) {
-    job.finished = true;
+    job.closed = true;
+    calculateProgress(job);
     if (!job.working) {
         processNextStreamSegment(job);
     }
@@ -196,13 +220,17 @@ function processNextStreamSegment(job) {
         _.each(job.processes, (childProcess) => {
             inputStream.pipe(childProcess.stdin, { end: false });
         });
+        inputStream.on('data', (chunk) => {
+            job.processedByteCount += chunk.length;
+            calculateProgress(job);
+        });
         inputStream.once('end', () => {
             // done, try processing the next segment
             processNextStreamSegment(job);
         });
     } else {
         job.working = false;
-        if (job.finished) {
+        if (job.closed) {
             // there are no more segments
             job.writeStream.end();
             job.md5Hash.end();
@@ -210,6 +238,37 @@ function processNextStreamSegment(job) {
             _.each(job.processes, (childProcess) => {
                 childProcess.stdin.end();
             });
+            calculateProgress(job);
+        }
+    }
+}
+
+/**
+ * Calculate encoding progress and call onProgress handler
+ *
+ * @param  {Object} job
+ */
+function calculateProgress(job) {
+    if (job.closed) {
+        // uploading is complete--we know the final file size
+        if (job.totalByteCount > 0) {
+            var progress = Math.round(job.processedByteCount / job.totalByteCount * 100);
+            if (progress === 100 && job.working) {
+                // there's still some work to be done
+                progress = 99;
+            }
+            if (job.progress !== progress) {
+                job.progress = progress;
+                if (job.onProgress) {
+                    // don't report that frequently
+                    var now = new Date;
+                    var elapsed = (job.lastProgressTime) ? now - job.lastProgressTime : Infinity;
+                    if (elapsed > 2000 || progress === 100) {
+                        job.onProgress({ type: 'progress', target: job });
+                        job.lastProgressTime = now;
+                    }
+                }
+            }
         }
     }
 }
@@ -249,8 +308,22 @@ function spawnFFmpeg(srcPath, dstPath, profile) {
     if (profile.frameRate) {
         output('-r', profile.frameRate);
     }
+    if (profile.audioChannels) {
+        output('-ac', profile.audioChannels);
+    }
+    if (profile.videoScaling) {
+        var w = profile.videoScaling.width;
+        var h = profile.videoScaling.height;
+        // if actual aspect ratio is great than w/h, scale = width:-2
+        // if actual aspect ratio is less than w/h, scale = -2:height
+        //
+        // -2 ensures the automatic dimension is divisible by 2
+        var scale = `'if(gt(a,${w}/${h}),${w},-2)':'if(gt(a,${w}/${h}),-2,${h})'`;
+        output('-vf', `scale=${scale}`);
+    }
     output(dstPath);
 
     var args = _.concat(inputArgs, outputArgs);
+    console.log(args.join(' '));
     return ChildProcess.spawn(cmd, args, options);
 }

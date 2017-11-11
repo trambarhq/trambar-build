@@ -1,7 +1,7 @@
 exports.indicateDataChange = function(OLD, NEW) {
     var omit = [ 'id', 'gn', 'ctime', 'mtime' ];
-    var diff = findChanges(OLD, NEW, omit);
-    if (diff) {
+    var changes = findChanges(OLD, NEW, omit);
+    if (changes) {
         NEW.gn += 1;
         NEW.mtime = new Date;
     }
@@ -10,13 +10,11 @@ exports.indicateDataChange = function(OLD, NEW) {
 exports.indicateDataChange.args = '';
 exports.indicateDataChange.ret = 'trigger';
 
-exports.notifyDataChange = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME) {
+exports.notifyDataChange = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, TG_ARGV) {
     var omit = [ 'id', 'gn', 'ctime', 'mtime' ];
-    var diff = findChanges(OLD, NEW, omit);
-    if (diff) {
-        var id = (NEW) ? NEW.id : OLD.id;
-        var gn = (NEW) ? NEW.gn : OLD.gn;
-        sendChangeNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, id, gn, diff);
+    var changes = findChanges(OLD, NEW, omit);
+    if (changes) {
+        sendChangeNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, OLD, NEW, changes, TG_ARGV);
     }
 };
 exports.notifyDataChange.args = '';
@@ -24,8 +22,8 @@ exports.notifyDataChange.ret = 'trigger';
 
 exports.indicateLiveDataChange = function(OLD, NEW) {
     var omit = [ 'id', 'gn', 'ctime', 'mtime', 'dirty', 'ltime', 'atime' ];
-    var diff = findChanges(OLD, NEW, omit);
-    if (diff) {
+    var changes = findChanges(OLD, NEW, omit);
+    if (changes) {
         NEW.gn += 1;
         NEW.mtime = new Date;
     }
@@ -34,13 +32,11 @@ exports.indicateLiveDataChange = function(OLD, NEW) {
 exports.indicateLiveDataChange.args = '';
 exports.indicateLiveDataChange.ret = 'trigger';
 
-exports.notifyLiveDataChange = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME) {
+exports.notifyLiveDataChange = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, TG_ARGV) {
     var omit = [ 'id', 'gn', 'ctime', 'mtime', 'dirty', 'ltime', 'atime' ];
-    var diff = findChanges(OLD, NEW, omit);
-    if (diff) {
-        var id = (NEW) ? NEW.id : OLD.id;
-        var gn = (NEW) ? NEW.gn : OLD.gn;
-        sendChangeNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, id, gn, diff);
+    var changes = findChanges(OLD, NEW, omit);
+    if (changes) {
+        sendChangeNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, OLD, NEW, changes, TG_ARGV);
     }
 
     // if the roll is dirty, we might need to do something to expedite its update
@@ -58,10 +54,7 @@ exports.notifyLiveDataChange = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TAB
                 requestCleaning = true;
             }
             if (requestCleaning) {
-                var id = NEW.id;
-                var atime = NEW.atime;
-                var sampleCount = NEW.sample_count || 0;
-                sendCleanNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, id, atime, sampleCount);
+                sendCleanNotification(TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, NEW);
             }
         }
     }
@@ -96,15 +89,15 @@ exports.updateResource.flags = 'SECURITY DEFINER';
  * doesn't get overridden by stale data
  */
 exports.coalesceResources = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_NAME, TG_ARGV) {
-    var oldResources = (OLD) ? OLD.details.resources || [] : [];
+    var oldResources = (OLD) ? OLD.details.resources : undefined;
     var newResources = NEW.details.resources;
     if (!oldResources && !newResources) {
         if (NEW.details.payload_id) {
-            oldResources = (OLD) ? [ OLD.details ] : [];
+            oldResources = (OLD) ? [ OLD.details ] : undefined;
             newResources = [ NEW.details ];
         }
     }
-    if (newResources) {
+    if (newResources && oldResources) {
         for (var i = 0; i < newResources.length; i++) {
             var newRes = newResources[i];
             if (newRes.payload_id) {
@@ -119,6 +112,8 @@ exports.coalesceResources = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_
         }
     }
 
+    // remove ready and payload_id from resources once they're all ready
+    // and the object itself is published
     var readyColumn = TG_ARGV[0];
     var publishedColumn = TG_ARGV[1];
     var allReady = true;
@@ -142,6 +137,7 @@ exports.coalesceResources = function(OLD, NEW, TG_OP, TG_TABLE_SCHEMA, TG_TABLE_
             }
         }
     }
+    // set ready column when all resources are ready
     if (readyColumn) {
         NEW[readyColumn] = allReady;
     }

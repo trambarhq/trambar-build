@@ -1,8 +1,8 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var Data = require('accessors/data');
+var ExternalData = require('accessors/external-data');
 
-module.exports = _.create(Data, {
+module.exports = _.create(ExternalData, {
     schema: 'global',
     table: 'repo',
     columns: {
@@ -14,16 +14,16 @@ module.exports = _.create(Data, {
         details: Object,
         type: String,
         name: String,
-        server_id: Number,
-        external_id: Number,
+        external: Array(Object),
     },
     criteria: {
         id: Number,
         deleted: Boolean,
         type: String,
         name: String,
+
         server_id: Number,
-        external_id: Number,
+        external_object: Object,
     },
 
     /**
@@ -45,9 +45,8 @@ module.exports = _.create(Data, {
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
                 type varchar(64) NOT NULL,
-                name varchar(64) NOT NULL,
-                server_id int NOT NULL,
-                external_id int NOT NULL,
+                name varchar(128) NOT NULL,
+                external jsonb[] NOT NULL DEFAULT '{}',
                 PRIMARY KEY (id)
             );
         `;
@@ -72,6 +71,25 @@ module.exports = _.create(Data, {
     },
 
     /**
+     * Attach triggers to the table.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Boolean>}
+     */
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'external' ];
+            return this.createNotificationTriggers(db, schema, propNames).then(() => {
+                // completion of tasks will automatically update details->resources
+                var Task = require('accessors/task');
+                return Task.createUpdateTrigger(db, schema, 'updateReaction', 'updateResource', [ this.table ]);
+            });
+        });
+    },
+
+    /**
      * Export database row to client-side code, omitting sensitive or
      * unnecessary information
      *
@@ -84,15 +102,11 @@ module.exports = _.create(Data, {
      * @return {Promise<Object>}
      */
     export: function(db, schema, rows, credentials, options) {
-        return Data.export.call(this, db, schema, rows, credentials, options).then((objects) => {
+        return ExternalData.export.call(this, db, schema, rows, credentials, options).then((objects) => {
             _.each(objects, (object, index) => {
                 var row = rows[index];
                 object.type = row.type;
                 object.name = row.name;
-                if (credentials.unrestricted) {
-                    object.server_id = row.server_id;
-                    object.external_id = row.external_id;
-                }
             });
             return objects;
         });

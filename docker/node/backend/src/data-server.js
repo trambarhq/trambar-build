@@ -15,14 +15,15 @@ var Project = require('accessors/project');
 var Repo = require('accessors/repo');
 var Role = require('accessors/role');
 var Server = require('accessors/server');
+var Subscription = require('accessors/subscription');
 var System = require('accessors/system');
 var User = require('accessors/user');
 
 // project-specific accessors
 var Bookmark = require('accessors/bookmark');
 var Listing = require('accessors/listing');
+var Notification = require('accessors/notification');
 var Reaction = require('accessors/reaction');
-var Robot = require('accessors/robot');
 var Statistics = require('accessors/statistics');
 var Story = require('accessors/story');
 var Task = require('accessors/task');
@@ -86,11 +87,19 @@ function sendError(res, err) {
     var statusCode = err.statusCode;
     var message = err.message;
     if (!statusCode) {
-        // not an expected error
-        console.error(err);
-        statusCode = 500;
-        if (process.env.NODE_ENV === 'production') {
-            message = 'Internal server error';
+        switch (err.code) {
+            case '23505': // unique constraint violation
+                statusCode = 409;
+                message = 'An object with that name already exists';
+                break;
+            default:
+                // not an expected error
+                console.error(err);
+                statusCode = 500;
+                if (process.env.NODE_ENV === 'production') {
+                    message = 'Internal server error';
+                }
+                break;
         }
     }
     res.status(statusCode).json({ message });
@@ -110,7 +119,7 @@ function handleDiscovery(req, res) {
         return checkAuthorization(db, params.token).then((userId) => {
             return fetchCredentials(db, userId, schema, 'read');
         }).then((credentials) => {
-            var criteria = _.omit(params, 'token');
+            var criteria = _.omit(params, 'token', 'include_deleted');
             if (criteria.order) {
                 // check clause for potential SQL injection
                 var clauses = _.split(criteria.order, /\s,\s/);
@@ -131,7 +140,12 @@ function handleDiscovery(req, res) {
             } else {
                 criteria.limit = 5000;
             }
-            if (criteria.deleted !== true) {
+            if (params.include_deleted) {
+                if (area !== 'admin') {
+                    // only admin can see deleted objects
+                    throw new HttpError(400);
+                }
+            } else {
                 criteria.deleted = false;
             }
             var accessor = getAccessor(schema, table);
@@ -213,6 +227,10 @@ function handleRetrieval(req, res) {
                 id: ids,
                 order: 'id DESC',
             };
+            if (area !== 'admin') {
+                // only admin can retrieve deleted objects
+                criteria.deleted = false;
+            }
             return accessor.find(db, schema, criteria, '*').then((rows) => {
                 // remove objects that user has no access to
                 return accessor.filter(db, schema, rows, credentials).then((rows) => {
@@ -253,7 +271,7 @@ function handleStorage(req, res) {
             if (!_.isArray(objects) || _.isEmpty(objects)) {
                 throw new HttpError(400);
             }
-            if (!_.every(objects, _.isObject)) {
+            if (!_.every(objects, _.isObjectLike)) {
                 throw new HttpError(400);
             }
 
@@ -279,6 +297,10 @@ function handleStorage(req, res) {
                     return db.begin().then(() => {
                         return accessor.save(db, schema, rows);
                     }).then((rows) => {
+                        if (!_.every(rows, _.isObjectLike)) {
+                            // an update failed
+                            throw new HttpError(404);
+                        }
                         return accessor.associate(db, schema, objects, originals, rows, credentials).return(rows);
                     }).then((rows) => {
                         return db.commit().then(() => {
@@ -366,6 +388,7 @@ var globalAccessors = [
     Repo,
     Role,
     Server,
+    Subscription,
     System,
     Task,
     User,
@@ -373,8 +396,8 @@ var globalAccessors = [
 var projectAccessors = [
     Bookmark,
     Listing,
+    Notification,
     Reaction,
-    Robot,
     Statistics,
     Story,
     Task,

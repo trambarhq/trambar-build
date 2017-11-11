@@ -34,8 +34,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
@@ -57,8 +55,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
@@ -75,8 +71,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -93,8 +87,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
@@ -112,8 +104,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=auth_role
@@ -135,8 +125,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -155,8 +143,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -173,8 +159,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -191,8 +175,6 @@ services:
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
@@ -206,15 +188,15 @@ services:
     volumes:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/common/src
+      - /home/cleong/Desktop/git-cache:/var/cache/gitlab
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
-      - HOST_DOMAIN_NAME=${TRAMBAR_DOMAIN_NAME}
-      - WEB_SERVER_PROTOCOL=${TRAMBAR_PROTOCOL}
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
+      - CACHE_FOLDER=/var/cache/gitlab
     extra_hosts:
       - gitlab.test:172.18.0.1
     command: [ nodemon, gitlab-adapter.js ]

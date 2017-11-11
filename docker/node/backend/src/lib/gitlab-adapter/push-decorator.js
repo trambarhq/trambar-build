@@ -6,6 +6,7 @@ var HttpError = require('errors/http-error');
 var Async = require('async-do-while');
 
 var Transport = require('gitlab-adapter/transport');
+var Import = require('gitlab-adapter/import');
 
 var languageCode = (process.env.LANG || 'en').substr(0, 2).toLowerCase();
 
@@ -266,7 +267,8 @@ function findMatchingComponents(folder, path) {
  */
 function scanFolder(server, repo, commitId, folderPath) {
     console.log(`Scanning ${folderPath}`);
-    var url = `projects/${repo.external_id}/repository/tree`;
+    var repoLink = Import.Link.find(repo, server);
+    var url = `projects/${repoLink.project.id}/repository/tree`;
     var query = {
         path: folderPath,
         ref: commitId,
@@ -296,7 +298,8 @@ function retrieveFile(server, repo, commitId, fileRecord) {
         return Promise.resolve(null);
     }
     console.log(`Retrieving file: ${fileRecord.path}`);
-    var url = `/projects/${repo.external_id}/repository/files/${encodeURIComponent(fileRecord.path)}`;
+    var repoLink = Import.Link.find(repo, server);
+    var url = `/projects/${repoLink.project.id}/repository/files/${encodeURIComponent(fileRecord.path)}`;
     var query = {
         ref: commitId,
     };

@@ -2,9 +2,9 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 var HttpError = require('errors/http-error');
-var Data = require('accessors/data');
+var ExternalData = require('accessors/external-data');
 
-module.exports = _.create(Data, {
+module.exports = _.create(ExternalData, {
     schema: 'project',
     table: 'story',
     columns: {
@@ -16,35 +16,38 @@ module.exports = _.create(Data, {
         details: Object,
         type: String,       // post, commit, merge, deployment, issue, task-start, task-end, survey
         tags: Array(String),
+        language_codes: Array(String),
         published_version_id: Number,
         user_ids: Array(Number),
         role_ids: Array(Number),
-        repo_id: Number,
-        external_id: Number,
         published: Boolean,
         ready: Boolean,
+        suppressed: Boolean,
         ptime: String,
         btime: String,
         public: Boolean,
+        external: Array(Object),
     },
     criteria: {
         id: Number,
         deleted: Boolean,
         type: String,
         tags: Array(String),
+        language_codes: Array(String),
         published_version_id: Number,
         user_ids: Array(Number),
         role_ids: Array(Number),
-        repo_id: Number,
-        external_id: Number,
         published: Boolean,
         ready: Boolean,
+        suppressed: Boolean,
         public: Boolean,
-        exclude_ids: Array(Number),
+
+        server_id: Number,
+        external_object: Object,
+        exclude: Array(Number),
         time_range: String,
         newer_than: String,
         older_than: String,
-        commit_ids: String,
         bumped_after: String,
         url: String,
         search: Object,
@@ -69,30 +72,28 @@ module.exports = _.create(Data, {
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
                 type varchar(32) NOT NULL DEFAULT '',
-                tags varchar(32)[] NOT NULL DEFAULT '{}'::text[],
+                tags varchar(64)[] NOT NULL DEFAULT '{}'::text[],
+                language_codes varchar(2)[] NOT NULL DEFAULT '{}'::text[],
                 published_version_id int,
                 user_ids int[] NOT NULL DEFAULT '{}'::int[],
                 role_ids int[] NOT NULL DEFAULT '{}'::int[],
-                repo_id int,
-                external_id int,
                 published boolean NOT NULL DEFAULT false,
                 ready boolean NOT NULL DEFAULT false,
+                suppressed boolean NOT NULL DEFAULT false,
                 ptime timestamp,
                 btime timestamp,
                 public boolean NOT NULL DEFAULT false,
+                external jsonb[] NOT NULL DEFAULT '{}',
                 PRIMARY KEY (id)
             );
-            CREATE INDEX ON ${table} (ptime) WHERE repo_id IS NOT NULL AND ptime IS NOT NULL;
-            CREATE INDEX ON ${table} (repo_id, external_id) WHERE repo_id IS NOT NULL AND external_id IS NOT NULL;
-            CREATE INDEX ON ${table} USING gin((details->'commit_ids')) WHERE details ? 'commit_ids';
             CREATE INDEX ON ${table} USING gin(("payloadIds"(details))) WHERE "payloadIds"(details) IS NOT NULL;
         `;
+        //
         return db.execute(sql);
     },
 
     /**
-     * Attach triggers to this table, also add trigger on task so details
-     * are updated when tasks complete
+     * Attach triggers to the table.
      *
      * @param  {Database} db
      * @param  {String} schema
@@ -100,10 +101,13 @@ module.exports = _.create(Data, {
      * @return {Promise<Boolean>}
      */
     watch: function(db, schema) {
-        return Data.watch.call(this, db, schema).then(() => {
-            return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'published' ]).then(() => {
-                var Task = require('accessors/task');
-                return Task.createUpdateTrigger(db, schema, 'updateStory', 'updateResource', [ this.table ]).then(() => {});
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [ 'type', 'tags', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'external' ];
+            return this.createNotificationTriggers(db, schema, propNames).then(() => {
+                return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'published' ]).then(() => {
+                    var Task = require('accessors/task');
+                    return Task.createUpdateTrigger(db, schema, 'updateStory', 'updateResource', [ this.table ]).then(() => {});
+                });
             });
         });
     },
@@ -120,22 +124,17 @@ module.exports = _.create(Data, {
      */
     apply: function(db, schema, criteria, query) {
         var special = [
-            'exclude_ids',
             'time_range',
             'newer_than',
             'older_than',
-            'commit_ids',
             'bumped_after',
             'url',
             'search',
         ];
-        Data.apply.call(this, _.omit(criteria, special), query);
+        ExternalData.apply.call(this, _.omit(criteria, special), query);
 
         var params = query.parameters;
         var conds = query.conditions;
-        if (criteria.exclude_ids) {
-            conds.push(`NOT (id = ANY($${params.push(criteria.exclude_ids)}))`);
-        }
         if (criteria.time_range !== undefined) {
             conds.push(`ptime <@ $${params.push(criteria.time_range)}::tsrange`);
         }
@@ -148,13 +147,6 @@ module.exports = _.create(Data, {
         if (criteria.bumped_after !== undefined) {
             var time = `$${params.push(criteria.bumped_after)}`
             conds.push(`(ptime > ${time} || btime > ${time})`);
-        }
-        if (criteria.commit_ids !== undefined) {
-            if (criteria.commit_ids instanceof Array) {
-                conds.push(`details->'commit_ids' ?| $${params.push(criteria.commit_ids)}`);
-            } else {
-                conds.push(`details->'commit_ids' ? $${params.push(criteria.commit_ids)}`);
-            }
         }
         if (criteria.url !== undefined) {
             conds.push(`details->>'url' = $${params.push(criteria.url)}`);
@@ -178,7 +170,7 @@ module.exports = _.create(Data, {
      * @return {Promise<Array>}
      */
     export: function(db, schema, rows, credentials, options) {
-        return Data.export.call(this, db, schema, rows, credentials, options).then((objects) => {
+        return ExternalData.export.call(this, db, schema, rows, credentials, options).then((objects) => {
             _.each(objects, (object, index) => {
                 var row = rows[index];
                 object.type = row.type;
@@ -189,12 +181,6 @@ module.exports = _.create(Data, {
                 object.published = row.published;
                 if (row.published_version_id) {
                     object.published_version_id = row.published_version_id;
-                }
-                if (row.repo_id) {
-                    object.repo_id = row.repo_id;
-                }
-                if (row.external_id) {
-                    object.external_id = row.external_id;
                 }
                 if (row.ready === false) {
                     object.ready = false;
@@ -227,11 +213,16 @@ module.exports = _.create(Data, {
      * @return {Promise<Array>}
      */
     import: function(db, schema, objects, originals, credentials, options) {
-        return Data.import.call(this, db, schema, objects, originals, credentials).then((objects) => {
+        return ExternalData.import.call(this, db, schema, objects, originals, credentials).then((objects) => {
             _.each(objects, (storyReceived, index) => {
                 // make sure current user has permission to modify the object
                 var storyBefore = originals[index];
                 this.checkWritePermission(storyReceived, storyBefore, credentials);
+
+                // set language_codes
+                if (storyReceived.details) {
+                    storyReceived.language_codes = _.filter(_.keys(storyReceived.details.text), { length: 2 });
+                }
 
                 // set the ptime if published is set
                 if (storyReceived.published && !storyReceived.ptime) {
@@ -242,6 +233,11 @@ module.exports = _.create(Data, {
                 if (storyReceived.bump) {
                     storyReceived.btime = Object('NOW()');
                     delete storyReceived.bump;
+                }
+
+                // mark story as having been manually deleted
+                if (storyReceived.deleted) {
+                    storyReceived.suppressed = true;
                 }
             });
 
@@ -273,7 +269,7 @@ module.exports = _.create(Data, {
                     // update the original row with properties from the temp copy
                     var updates = {};
                     updates.id = publishedVersion.id;
-                    updates.details = _.omit(tempCopy.details, 'fn');
+                    updates.details = tempCopy.details;
                     updates.type = tempCopy.type;
                     updates.user_ids = tempCopy.user_ids;
                     updates.role_ids  = tempCopy.role_ids;
@@ -281,7 +277,7 @@ module.exports = _.create(Data, {
 
                     // stick contents of the original row into the temp copy
                     // so we can retrieve them later potentially
-                    tempCopy.details = _.omit(publishedVersion.details, 'fn');
+                    tempCopy.details = publishedVersion.details;
                     tempCopy.type = publishedVersion.type;
                     tempCopy.user_ids = publishedVersion.user_ids;
                     tempCopy.role_ids  = publishedVersion.role_ids;

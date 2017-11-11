@@ -134,8 +134,8 @@ function sendInternalRedirect(res, path, cc, filename) {
 function sendError(res, err) {
     var statusCode = err.statusCode;
     var message = err.message;
-    if (!statusCode || process.env.NODE_ENV !== 'production') {
-        console.error(err.stack);
+    if (process.env.NODE_ENV !== 'production') {
+        console.error(err);
     }
     if (!statusCode) {
         // not an expected error
@@ -221,7 +221,7 @@ function handleWebsiteScreenshot(req, res) {
         if (!url) {
             throw new HttpError(400);
         }
-        var tempPath = FileManager.makeTempPath(CacheFolders.image, url, '.jpeg');
+        var tempPath = FileManager.makeTempPath(CacheFolders.image, url, '.png');
         WebsiteCapturer.createScreenshot(url, tempPath).then((title) => {
             // rename it to its MD5 hash once we have the data
             return FileManager.hashFile(tempPath).then((hash) => {
@@ -241,7 +241,7 @@ function handleWebsiteScreenshot(req, res) {
         });
         // got nothing to return
         return {};
-    }).then((resutls) => {
+    }).then((results) => {
         sendJson(res, results);
     }).catch((err) => {
         sendError(res, err);
@@ -348,6 +348,14 @@ function handleMediaUpload(req, res, type) {
         if (streamId) {
             // handle streaming upload
             var job = VideoManager.findTranscodingJob(streamId);
+            if (!job) {
+                throw new HttpError(404);
+            }
+            job.onProgress = (evt) => {
+                var progress = evt.target.progress;
+                console.log('Progress: ', progress + '%');
+                saveTaskProgress(schema, taskId, null, progress);
+            };
             VideoManager.awaitTranscodingJob(job).then((job) => {
                 var details = {
                     url: `/media/${job.type}s/${job.originalHash}`,
@@ -360,8 +368,8 @@ function handleMediaUpload(req, res, type) {
         } else {
             var dstFolder = CacheFolders[type];
             return FileManager.preserveFile(file, url, dstFolder).then((mediaFile) => {
-                if (!saved) {
-                    throw HttpError(400);
+                if (!mediaFile) {
+                    throw new HttpError(400);
                 }
                 var url = `/media/${type}s/${srcHash}`;
                 var job = VideoManager.startTranscodingJob(mediaFile.path, type, mediaFile.hash);
@@ -381,7 +389,7 @@ function handleMediaUpload(req, res, type) {
                 var posterUrl = `/media/images/${poster.hash}`;
                 ImageManager.getImageMetadata(poster.path).then((metadata) => {
                     var details = {
-                        poster_url: url,
+                        poster_url: posterUrl,
                         width: metadata.width,
                         height: metadata.height,
                     };
@@ -416,7 +424,7 @@ function handleStreamCreate(req, res) {
         }
         var inputStream = FS.createReadStream(file.path);
         var job = VideoManager.startTranscodingJob(null, type, jobId);
-        VideoManager.transcodeSegment(job, inputStream);
+        VideoManager.transcodeSegment(job, inputStream, file.size);
         return { id: jobId };
     }).then((results) => {
         sendJson(res, results);
@@ -440,7 +448,7 @@ function handleStreamAppend(req, res) {
         }
         if (file) {
             var inputStream = FS.createReadStream(file.path);
-            return VideoManager.transcodeSegment(job, inputStream);
+            return VideoManager.transcodeSegment(job, inputStream, file.size);
         } else {
             return VideoManager.endTranscodingJob(job);
         }
@@ -490,9 +498,9 @@ function saveTaskProgress(schema, taskId, details, completion) {
                 if (completion === 100) {
                     task.etime = Object('NOW()');
                 }
-                if (task.details) {
-                    _.assign(task.details, details);
-                }
+            }
+            if (details) {
+                _.assign(task.details, details);
             }
             return Task.updateOne(db, schema, task);
         });

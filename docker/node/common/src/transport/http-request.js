@@ -44,8 +44,6 @@ exports.fetch = function(method, url, payload, options) {
         if (contentType) {
             xhr.setRequestHeader("Content-Type", contentType);
         }
-        xhr.send(payload);
-
         xhr.onload = function(evt) {
             if (xhr.status >= 400) {
                 var error = new HttpError(xhr.status, xhr.response);
@@ -62,7 +60,7 @@ exports.fetch = function(method, url, payload, options) {
             reject(new Error(evt.message));
         };
         xhr.onabort = function(evt) {
-            reject(new Error('Transfer aborted'));
+            reject(new Error('Transfer aborted: ' + url));
         }
         var onDownloadProgress = _.get(options, 'onDownloadProgress');
         var onUploadProgress = _.get(options, 'onUploadProgress');
@@ -76,6 +74,7 @@ exports.fetch = function(method, url, payload, options) {
                 onUploadProgress(evt);
             }
         };
+        xhr.send(payload);
     });
     promise.cancel = function() {
         xhr.abort();

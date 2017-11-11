@@ -24,6 +24,8 @@ module.exports = _.create(Data, {
         server_id: Number,
         token: String,
         area: String,
+
+        older_than: String,
     },
 
     /**
@@ -72,23 +74,36 @@ module.exports = _.create(Data, {
     },
 
     /**
-     * Delete unused objects created before given time
+     * Attach triggers to the table.
      *
      * @param  {Database} db
      * @param  {String} schema
-     * @param  {String} time
      *
-     * @return {Promise<Array<Object>>}
+     * @return {Promise<Boolean>}
      */
-    prune: function(db, schema, time) {
-        var table = this.getTableName(schema);
-        var sql = `
-            DELETE FROM ${table}
-            WHERE user_id IS NULL
-            AND ctime < $1
-            RETURNING *
-        `;
-        return db.query(sql, [ time ]);
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema);
+    },
+
+    /**
+     * Add conditions to SQL query based on criteria object
+     *
+     * @param  {Object} criteria
+     * @param  {Object} query
+     *
+     * @return {Promise}
+     */
+    apply: function(criteria, query) {
+        var special = [
+            'older_than',
+        ];
+        Data.apply.call(this, _.omit(criteria, special), query);
+
+        var params = query.parameters;
+        var conds = query.conditions;
+        if (criteria.older_than !== undefined) {
+            conds.push(`ctime < $${params.push(criteria.older_than)}`);
+        }
     },
 
     import: null,

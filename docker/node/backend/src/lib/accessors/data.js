@@ -4,8 +4,8 @@ var HttpError = require('errors/http-error');
 var TagScanner = require('utils/tag-scanner');
 
 module.exports = {
-    schema: 'global',
-    table: 'data',
+    schema: '?',
+    table: '?',
     columns: {
         id: Number,
         gn: Number,
@@ -31,15 +31,15 @@ module.exports = {
         // allow non-alphanumeric schema name during testing
         if (!process.env.DOCKER_MOCHA) {
             if (!/^[\w\-]+$/.test(schema)) {
-                throw new Error('Invalid name: ' + schema);
+                throw new Error(`Invalid name: "${schema}"`);
             }
         }
         if (this.schema !== 'both') {
             if (this.schema === 'global' && schema !== 'global') {
-                throw new Error('Referencing global table in project-specific schema: ' + this.table);
+                throw new Error(`Referencing global table "${this.table}" in project-specific schema "${schema}"`);
             }
             if (this.schema === 'project' && schema === 'global') {
-                throw new Error('Referencing project-specific table in global schema: ' + this.table);
+                throw new Error(`Referencing project-specific "${this.table}" table in global schema`);
             }
         }
         return `"${schema}"."${this.table}"`;
@@ -47,6 +47,8 @@ module.exports = {
 
     /**
      * Create table in schema
+     *
+     * (for reference purpose only)
      *
      * @param  {Database} db
      * @param  {String} schema
@@ -87,6 +89,18 @@ module.exports = {
     },
 
     /**
+     * Attach triggers to the table.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     *
+     * @return {Promise<Boolean>}
+     */
+    watch: function(db, schema) {
+        return Promise.resolve(false);
+    },
+
+    /**
      * Attach a trigger to the table that increment the gn (generation number)
      * when a row is updated. Also add triggers that send notification messages.
      *
@@ -95,35 +109,64 @@ module.exports = {
      *
      * @return {Promise<Boolean>}
      */
-    watch: function(db, schema) {
+    createChangeTrigger: function(db, schema) {
         var table = this.getTableName(schema);
-        var sql = [
-            `
-                CREATE TRIGGER "indicateDataChangeOnUpdate"
-                BEFORE UPDATE ON ${table}
-                FOR EACH ROW
-                EXECUTE PROCEDURE "indicateDataChange"();
-            `,
-            `
-                CREATE CONSTRAINT TRIGGER "notifyDataChangeOnInsert"
-                AFTER INSERT ON ${table} INITIALLY DEFERRED
-                FOR EACH ROW
-                EXECUTE PROCEDURE "notifyDataChange"();
-            `,
-            `
-                CREATE CONSTRAINT TRIGGER "notifyDataChangeOnUpdate"
-                AFTER UPDATE ON ${table} INITIALLY DEFERRED
-                FOR EACH ROW
-                EXECUTE PROCEDURE "notifyDataChange"();
-            `,
-            `
-                CREATE CONSTRAINT TRIGGER "notifyDataChangeOnDelete"
-                AFTER DELETE ON ${table} INITIALLY DEFERRED
-                FOR EACH ROW
-                EXECUTE PROCEDURE "notifyDataChange"();
-            `,
-        ];
-        return db.execute(sql.join('\n')).return(true);
+        var sql = `
+            CREATE TRIGGER "indicateDataChangeOnUpdate"
+            BEFORE UPDATE ON ${table}
+            FOR EACH ROW
+            EXECUTE PROCEDURE "indicateDataChange"();
+        `;
+        return db.execute(sql).return(true);
+    },
+
+    /**
+     * Add triggers that send notification messages, bundled with values of
+     * the specified properties.
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<String>} propNames
+     *
+     * @return {Promise<Boolean>}
+     */
+    createNotificationTriggers: function(db, schema, propNames) {
+        var table = this.getTableName(schema);
+        var args = _.map(propNames, (propName) => {
+            // use quotes just in case the name is mixed case
+            return `"${propName}"`;
+        }).join(', ');
+        var sql = `
+            CREATE CONSTRAINT TRIGGER "notifyDataChangeOnInsert"
+            AFTER INSERT ON ${table} INITIALLY DEFERRED
+            FOR EACH ROW
+            EXECUTE PROCEDURE "notifyDataChange"(${args});
+            CREATE CONSTRAINT TRIGGER "notifyDataChangeOnUpdate"
+            AFTER UPDATE ON ${table} INITIALLY DEFERRED
+            FOR EACH ROW
+            EXECUTE PROCEDURE "notifyDataChange"(${args});
+            CREATE CONSTRAINT TRIGGER "notifyDataChangeOnDelete"
+            AFTER DELETE ON ${table} INITIALLY DEFERRED
+            FOR EACH ROW
+            EXECUTE PROCEDURE "notifyDataChange"(${args});
+        `;
+        return db.execute(sql).return(true);
+    },
+
+    /**
+     * See if a database change event is relevant to a given user
+     *
+     * @param  {Object} event
+     * @param  {User} user
+     * @param  {Subscription} subscription
+     *
+     * @return {Boolean}
+     */
+    isRelevantTo: function(event, user, subscription) {
+        if (subscription.schema === '*' || subscription.schema === event.schema) {
+            return true;
+        }
+        return false;
     },
 
     /**
@@ -150,38 +193,36 @@ module.exports = {
         var conds = query.conditions;
         _.forIn(this.criteria, (type, name) => {
             if (criteria.hasOwnProperty(name)) {
-                // assume that none of the column names requires double quotes
-                var value = criteria[name];
-                if (type === Array || type instanceof Array) {
-                    if (value instanceof Array) {
-                        // overlaps
-                        conds.push(`${name} && $${params.push(value)}`);
-                    } else {
-                        // contains
-                        conds.push(`${name} @> $${params.push(value)}`);
+                if (name === 'exclude') {
+                    if (criteria.exclude) {
+                        conds.push(`NOT (id = ANY($${params.push(criteria.exclude)}))`);
                     }
                 } else {
-                    if (value instanceof Array) {
-                        // equals any
-                        conds.push(`${name} = ANY($${params.push(value)})`);
-                    } else if (value === null) {
-                        conds.push(`${name} IS NULL`);
+                    // assume that none of the column names requires double quotes
+                    var value = criteria[name];
+                    if (type === Array || type instanceof Array) {
+                        if (value instanceof Array) {
+                            // overlaps
+                            conds.push(`${name} && $${params.push(value)}`);
+                        } else {
+                            // contains
+                            conds.push(`${name} @> $${params.push(value)}`);
+                        }
                     } else {
-                        // equals
-                        conds.push(`${name} = $${params.push(value)}`);
+                        if (value instanceof Array) {
+                            // equals any
+                            conds.push(`${name} = ANY($${params.push(value)})`);
+                        } else if (value === null) {
+                            conds.push(`${name} IS NULL`);
+                        } else {
+                            // equals
+                            conds.push(`${name} = $${params.push(value)}`);
+                        }
                     }
-
                 }
             }
         });
 
-        if (criteria.fn !== undefined) {
-            if (criteria.fn === null) {
-                conds.push(`details->>'fn' IS NULL`);
-            } else {
-                conds.push(`details->>'fn' = $${params.push(criteria.fn)}`);
-            }
-        }
         if (typeof(criteria.limit) === 'number') {
             criteria.limit = criteria.limit;
         }
@@ -216,37 +257,26 @@ module.exports = {
             columns: columns,
             table: table,
         };
+        var select = function() {
+            var sql = `SELECT ${query.columns} FROM ${query.table}`;
+            if (!_.isEmpty(query.conditions)) {
+                sql += ` WHERE ${query.conditions.join(' AND ')}`;
+            }
+            if (query.order !== undefined) {
+                sql += ` ORDER BY ${query.order}`;
+            }
+            if (query.limit !== undefined) {
+                sql += ` LIMIT ${query.limit}`;
+            }
+            return db.query(sql, query.parameters);
+        };
         if (this.apply.length === 4) {
             // the four-argument form of the function works asynchronously
-            return this.apply(db, schema, criteria, query).then(() => {
-                return this.run(db, query);
-            });
+            return this.apply(db, schema, criteria, query).then(select);
         } else {
             this.apply(criteria, query);
-            return this.run(db, query);
+            return select();
         }
-    },
-
-    /**
-     * Run a query
-     *
-     * @param  {Database} db
-     * @param  {Object} query
-     *
-     * @return {Promise<Array>}
-     */
-    run: function(db, query) {
-        var sql = `SELECT ${query.columns} FROM ${query.table}`;
-        if (!_.isEmpty(query.conditions)) {
-            sql += ` WHERE ${query.conditions.join(' AND ')}`;
-        }
-        if (query.order !== undefined) {
-            sql += ` ORDER BY ${query.order}`;
-        }
-        if (query.limit !== undefined) {
-            sql += ` LIMIT ${query.limit}`;
-        }
-        return db.query(sql, query.parameters);
     },
 
     /**
@@ -319,6 +349,56 @@ module.exports = {
         return db.query(sql, parameters).get(0).then((row) => {
             return row || null;
         });
+    },
+
+    /**
+     * Update one row
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Object} criteria
+     * @param  {Object} values
+     *
+     * @return {Promise<Object>}
+     */
+    updateMatching: function(db, schema, criteria, values) {
+        var table = this.getTableName(schema);
+        var columns = _.keys(this.columns);
+        var assignments = [];
+        var parameters = [];
+        _.each(columns, (name) => {
+            if (values.hasOwnProperty(name)) {
+                var value = values[name];
+                if (value instanceof String) {
+                    // a boxed string--just insert it into the query
+                    assignments.push(`${name} = ${value.valueOf()}`);
+                } else {
+                    assignments.push(`${name} = $${parameters.push(value)}`);
+                }
+            }
+        });
+        var query = {
+            conditions: [],
+            parameters: parameters,
+            columns: '*',
+            table: table,
+        };
+        var update = function() {
+            var sql = `
+                UPDATE ${query.table}
+                SET ${assignments.join(', ')}
+                WHERE ${query.conditions.join(' AND ')}
+                RETURNING *
+            `;
+            return db.query(sql, query.parameters);
+        };
+        if (this.apply.length === 4) {
+            // the four-argument form of the function works asynchronously
+            return this.apply(db, schema, criteria, query).then(update);
+        } else {
+            this.apply(criteria, query);
+            return update();
+        }
     },
 
     /**
@@ -481,6 +561,40 @@ module.exports = {
     },
 
     /**
+     * Remove matching rows
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Object} criteria
+     *
+     * @return {Promise<Object>}
+     */
+    removeMatching: function(db, schema, criteria) {
+        var table = this.getTableName(schema);
+        var query = {
+            conditions: [],
+            parameters: [],
+            columns: '*',
+            table: table,
+        };
+        var remove = function() {
+            var sql = `
+                DELETE FROM ${query.table}
+                WHERE ${query.conditions.join(' AND ')}
+                RETURNING *
+            `;
+            return db.query(sql, query.parameters);
+        };
+        if (this.apply.length === 4) {
+            // the four-argument form of the function works asynchronously
+            return this.apply(db, schema, criteria, query).then(remove);
+        } else {
+            this.apply(criteria, query);
+            return remove();
+        }
+    },
+
+    /**
      * Filter out rows that user doesn't have access to
      *
      * @param  {Database} db
@@ -490,7 +604,7 @@ module.exports = {
      *
      * @return {Promise<Array>}
      */
-     filter: function(db, schema, rows, credentials) {
+    filter: function(db, schema, rows, credentials) {
         return Promise.resolve(rows);
     },
 
@@ -778,6 +892,49 @@ module.exports = {
             `
         ];
         return db.execute(sql.join('\n')).return(true);
+    },
+
+    /**
+     * Find matching rows, retrieving from earlier searches if possible
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Object} criteria
+     * @param  {String} columns
+     *
+     * @return {Promise<Array<Object>>}
+     */
+    findCached: function(db, schema, criteria, columns) {
+        var matchingSearch = _.find(this.cachedSearches, { schema, criteria, columns });
+        if (matchingSearch) {
+            // remove old ones
+            var time = new Date;
+            _.remove(this.cachedSearches, (search) => {
+                var elapsed = time - search.time;
+                if (elapsed > 5 * 60 * 1000) {
+                    return true;
+                }
+            });
+            return Promise.resolve(matchingSearch.results);
+        } else {
+            return this.find(db, schema, criteria, columns).then((results) => {
+                var time = new Date;
+                if (!this.cachedSearches) {
+                    this.cachedSearches = [];
+                }
+                this.cachedSearches.push({ schema, criteria, columns, time, results });
+                return results;
+            });
+        }
+    },
+
+    /**
+     * Clear cache in response to change events
+     *
+     * @param  {Array<Object>} events
+     */
+    clearCache: function(events) {
+        this.cachedSearches = null;
     },
 };
 

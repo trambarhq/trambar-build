@@ -1,10 +1,10 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var Data = require('accessors/data');
+var ExternalData = require('accessors/external-data');
 
-module.exports = _.create(Data, {
-    schema: 'project',
-    table: 'robot',
+module.exports = _.create(ExternalData, {
+    schema: 'global',
+    table: 'commit',
     columns: {
         id: Number,
         gn: Number,
@@ -12,14 +12,14 @@ module.exports = _.create(Data, {
         ctime: String,
         mtime: String,
         details: Object,
-        type: String,
-        name: String,
+        initial_branch: String,
+        external: Array(Object),
     },
     criteria: {
         id: Number,
         deleted: Boolean,
-        type: String,
-        name: String,
+
+        external_object: Object,
     },
 
     /**
@@ -40,8 +40,8 @@ module.exports = _.create(Data, {
                 ctime timestamp NOT NULL DEFAULT NOW(),
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
-                type varchar(32) NOT NULL DEFAULT '',
-                name varchar(64) NOT NULL DEFAULT '',
+                initial_branch varchar(256) NOT NULL DEFAULT '{}',
+                external jsonb[] NOT NULL DEFAULT '{}',
                 PRIMARY KEY (id)
             );
         `;
@@ -60,30 +60,23 @@ module.exports = _.create(Data, {
         var table = this.getTableName(schema);
         var sql = `
             GRANT INSERT, SELECT, UPDATE, DELETE ON ${table} TO admin_role;
+            GRANT SELECT ON ${table} TO client_role;
         `;
         return db.execute(sql).return(true);
     },
 
     /**
-     * Export database row to client-side code, omitting sensitive or
-     * unnecessary information
+     * Attach triggers to the table.
      *
      * @param  {Database} db
      * @param  {String} schema
-     * @param  {Array<Object>} rows
-     * @param  {Object} credentials
-     * @param  {Object} options
      *
-     * @return {Promise<Object>}
+     * @return {Promise<Boolean>}
      */
-    export: function(db, schema, rows, credentials, options) {
-        return Data.export.call(this, db, schema, rows, credentials, options).then((objects) => {
-            _.each(objects, (object, index) => {
-                var row = rows[index];
-                object.type = row.type;
-                object.name = row.name;
-            });
-            return objects;
+    watch: function(db, schema) {
+        return this.createChangeTrigger(db, schema).then(() => {
+            var propNames = [];
+            return this.createNotificationTriggers(db, schema, propNames);
         });
-    }
+    },
 });

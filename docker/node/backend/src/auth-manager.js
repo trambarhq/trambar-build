@@ -80,6 +80,7 @@ function sendError(res, err) {
     }
     var statusCode = err.statusCode;
     var message = err.message;
+    console.error(err);
     if (!statusCode) {
         // not an expected error
         console.error(err);
@@ -445,7 +446,7 @@ function authorizeUser(db, user, authentication, authType, serverId, details) {
  */
 function canProvideAccess(server, area) {
     if (server.settings.oauth) {
-        if (server.settings.oauth.clientID && server.settings.oauth.clientSecret) {
+        if (server.settings.oauth.client_id && server.settings.oauth.client_secret) {
             if (area === 'admin') {
                 switch (server.type) {
                     case 'gitlab':
@@ -484,13 +485,16 @@ function authenticateThruPassport(req, res, server, params, scope) {
             query += name + '=' + value;
             return query;
         }, '');
-        var url = `${protocol}://${host}/auth/${provider}/callback?${query}`;
-        // add callback URL to server's OAuth credentials
-        var credentials = _.extend({}, server.settings.oauth, { callbackURL: url });
+        var settings = {
+            clientID: server.settings.oauth.client_id,
+            clientSecret: server.settings.oauth.client_secret,
+            baseURL: server.settings.oauth.base_url,
+            callbackURL: `${protocol}://${host}/auth/${provider}/callback?${query}`,
+        };
         var options = { session: false, scope };
         if (provider === 'facebook') {
             // ask Facebook to return these fields
-            credentials.profileFields = [
+            params.profileFields = [
                 'id',
                 'email',
                 'gender',
@@ -503,7 +507,7 @@ function authenticateThruPassport(req, res, server, params, scope) {
         }
         // create strategy object, resolving promise when we have the profile
         var Strategy = require(plugins[server.type]);
-        var strategy = new Strategy(credentials, (accessToken, refreshToken, profile, done) => {
+        var strategy = new Strategy(settings, (accessToken, refreshToken, profile, done) => {
             // just resolve the promise--no need to call done() since we're not
             // using Passport as an Express middleware
             resolve({ accessToken, refreshToken, profile });
@@ -532,33 +536,31 @@ function authenticateThruPassport(req, res, server, params, scope) {
 function findMatchingUser(db, server, account) {
     // look for a user with the external id
     var criteria = {
-        external_id: parseInt(account.profile.id),
-        server_id: server.id,
+        external_object: {
+            type: server.type,
+            server_id: server.id,
+            user: { id: account.profile.id },
+        },
         deleted: false,
     };
     return User.findOne(db, 'global', criteria, 'id, type').then((user) => {
         if (user) {
             return user;
         }
-        // look for a user that isn't bound to an external account yet
-        var criteria = {
-            external_id: null,
-            deleted: false,
-        };
-        return User.find(db, 'global', criteria, '*').then((users) => {
-            // match e-mail address
-            var emails = _.map(account.profile.emails, 'value');
-            var matching = _.find(users, (user) => {
-                // if server match the provider specified or if "any"
-                // provider was selected
-                if (user.server_id === server.id && user.server_id === 0) {
-                    return _.includes(emails, user.details.email);
-                }
-            });
+        // find a user with the email address
+        return Promise.reduce(account.profile.emails, (matching, email) => {
             if (matching) {
-                matching.server_id = server.id;
-                matching.external_id = externalId;
-                return User.updateOne(db, 'global', matching);
+                return matching;
+            }
+            var criteria = { email, deleted: false };
+            return User.findOne(db, 'global', criteria, 'id, type, external');
+        }).then((user) => {
+            if (user) {
+                user.external.push({
+                    type: server.type,
+                    user: { id: account.profile.id }
+                });
+                return User.updateOne(db, 'global', user);
             } else {
                 // create the user
                 return createNewUser(db, server, account);
@@ -586,12 +588,16 @@ function createNewUser(db, server, account) {
     }
     return retrieveProfileImage(profile).then((image) => {
         var user = {
-            external_id: parseInt(account.profile.id),
-            server_id: server.id,
             username: preferredUsername,
             type: userType,
             details: extractUserDetails(server.type, profile._json),
             approved: autoApprove,
+            external: [
+                {
+                    type: server.type,
+                    user: { id: account.profile.id }
+                }
+            ]
         };
         if (image) {
             image[`from_${server.type}`] = true;
@@ -732,8 +738,12 @@ function retrieveProfileImage(profile) {
  */
 function removeUnusedAuthorizationObjects() {
     return Database.open().then((db) => {
-        var before = Moment().subtract(authenticationLifetime * 2, 'hour').toISOString();
-        return Authentication.prune(db, 'global', before);
+        var limit = Moment().subtract(authenticationLifetime * 2, 'hour').toISOString();
+        var criteria = {
+            user_id: null,
+            older_than: limit,
+        };
+        return Authentication.removeMatching(db, 'global', criteria);
     });
 }
 

@@ -56,8 +56,26 @@ exports.isEqual = function(before, after) {
 };
 var isEqual = exports.isEqual;
 
-exports.sendChangeNotification = function(op, schema, table, id, gn, diff) {
-    var info = { op, schema, table, id, gn, diff };
+exports.sendChangeNotification = function(op, schema, table, before, after, changes, propNames) {
+    var id = (after) ? after.id : before.id;
+    var gn = (after) ? after.gn : before.gn;
+    var diff = {}, previous = {}, current = {};
+    // indicate which property is different
+    for (var name in changes) {
+        diff[name] = true;
+    }
+    for (var i = 0; i < propNames.length; i++) {
+        var name = propNames[i];
+        if (after) {
+            current[name] = after[name];
+        }
+        if (diff[name]) {
+            if (before) {
+                previous[name] = before[name];
+            }
+        }
+    }
+    var info = { op, schema, table, id, gn, diff, previous, current };
     var channel = table + '_change';
     try {
         var msg = JSON.stringify(info);
@@ -80,17 +98,13 @@ exports.sendChangeNotification = function(op, schema, table, id, gn, diff) {
     }
 };
 
-exports.sendCleanNotification = function(op, schema, table, id, gn, atime, sample_count) {
+exports.sendCleanNotification = function(op, schema, table, after) {
+    var id = after.id;
+    var gn = after.gn;
+    var atime = after.atime;
+    var sample_count = after.sample_count || 0;
     var info = { op, schema, table, id, gn, atime, sample_count };
     var channel = table + '_clean';
-    var msg = JSON.stringify(info);
-    var sql = `NOTIFY ${channel}, ${plv8.quote_literal(msg)}`;
-    plv8.execute(sql);
-};
-
-exports.sendFinalizeNotification = function(op, schema, table, id, type, userId) {
-    var info = { op, schema, table, id, type, userId };
-    var channel = table + '_finalize';
     var msg = JSON.stringify(info);
     var sql = `NOTIFY ${channel}, ${plv8.quote_literal(msg)}`;
     plv8.execute(sql);

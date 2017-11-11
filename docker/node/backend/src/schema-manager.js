@@ -5,11 +5,13 @@ var Database = require('database');
 // global accessors
 var Authentication = require('accessors/authentication');
 var Authorization = require('accessors/authorization');
+var Commit = require('accessors/commit');
 var Picture = require('accessors/picture');
 var Project = require('accessors/project');
 var Repo = require('accessors/repo');
 var Role = require('accessors/role');
 var Server = require('accessors/server');
+var Subscription = require('accessors/subscription');
 var System = require('accessors/system');
 var User = require('accessors/user');
 
@@ -17,11 +19,11 @@ var User = require('accessors/user');
 var Bookmark = require('accessors/bookmark');
 var Listing = require('accessors/listing');
 var Reaction = require('accessors/reaction');
-var Robot = require('accessors/robot');
 var Statistics = require('accessors/statistics');
 var Story = require('accessors/story');
 
 // appear in both
+var Notification = require('accessors/notification');
 var Task = require('accessors/task');
 
 var database;
@@ -91,8 +93,8 @@ function handleDatabaseChanges(events) {
     return Promise.each(events, (event) => {
         if (event.table === 'project') {
             if (event.diff.name) {
-                var nameBefore = event.diff.name[0];
-                var nameAfter = event.diff.name[1];
+                var nameBefore = event.previous.name;
+                var nameAfter = event.current.name;
                 if (!nameBefore && nameAfter) {
                     if (event.op === 'INSERT' || event.op === 'UPDATE') {
                         return createSchema(db, nameAfter);
@@ -107,8 +109,17 @@ function handleDatabaseChanges(events) {
                     }
                 }
             }
+            if (event.diff.deleted) {
+                var deletedName = `$recycled$-project-${event.id}`;
+                var normalName = event.current.name;
+                if (event.current.deleted) {
+                    return renameSchema(db, normalName, deletedName);
+                } else {
+                    return renameSchema(db, deletedName, normalName);
+                }
+            }
         } else if (event.table === 'story' || event.table === 'reaction') {
-            if (event.diff.details) {
+            if (event.diff.language_codes) {
                 if (event.op === 'INSERT' || event.op === 'UPDATE') {
                     var accessor;
                     if (event.table === 'story') {
@@ -118,20 +129,15 @@ function handleDatabaseChanges(events) {
                     }
 
                     // see if new languages are introduced
-                    var detailsBefore = event.diff.details[0];
-                    var detailsAfter = event.diff.details[1];
-                    var languagesBefore = (detailsBefore) ? _.keys(detailsBefore.text) : [];
-                    var languagesAfter = (detailsAfter) ? _.keys(detailsAfter.text) : [];
+                    var languagesBefore = event.previous.language_codes;
+                    var languagesAfter = event.current.language_codes;
                     var newLanguages = _.difference(languagesAfter, languagesBefore);
-                    if (newLanguages) {
-                        // make sure we have indices for these languages
-                        return accessor.getTextSearchLanguages(db, event.schema).then((existing) => {
-                            // cap number of indices at 4
-                            _.pullAll(newLanguages, existing).splice(4 - existing.length);
-                            console.log(newLanguages)
-                            return accessor.addTextSearchLanguages(db, event.schema, newLanguages);
-                        });
-                    }
+                    // make sure we have indices for these languages
+                    return accessor.getTextSearchLanguages(db, event.schema).then((existing) => {
+                        // cap number of indices at 4
+                        _.pullAll(newLanguages, existing).splice(4 - existing.length);
+                        return accessor.addTextSearchLanguages(db, event.schema, newLanguages);
+                    });
                 }
             }
         }
@@ -198,11 +204,14 @@ function upgradeDatabase(db) {
 var globalAccessors = [
     Authentication,
     Authorization,
+    Commit,
+    Notification,
     Picture,
     Project,
     Repo,
     Role,
     Server,
+    Subscription,
     System,
     Task,
     User,
@@ -210,8 +219,8 @@ var globalAccessors = [
 var projectAccessors = [
     Bookmark,
     Listing,
+    Notification,
     Reaction,
-    Robot,
     Statistics,
     Story,
     Task,
@@ -314,7 +323,10 @@ function deleteSchema(db, schema) {
  * @return {Promise<Boolean>}
  */
 function renameSchema(db, schemaBefore, schemaAfter) {
-
+    var sql = `ALTER SCHEMA "${schemaBefore}" RENAME TO "${schemaAfter}"`;
+    return db.execute(sql).then((result) => {
+        return true;
+    });
 }
 
 /**
