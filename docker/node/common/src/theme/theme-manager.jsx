@@ -63,13 +63,13 @@ module.exports = React.createClass({
 
         var filters = [];
         // apply clipping rect
-        if (res.clip && !params.noClipping) {
-            var rect = [
-                res.clip.left,
-                res.clip.top,
-                res.clip.width,
-                res.clip.height,
-            ];
+        var clip = res.clip;
+        if (params.hasOwnProperty('clip')) {
+            // override the one stored in res
+            clip = params.clip;
+        }
+        if (clip) {
+            var rect = [ clip.left, clip.top, clip.width, clip.height ];
             filters.push(`cr${rect.join('-')}`)
         }
         // resize image (if dimensions are specified)
@@ -84,7 +84,7 @@ module.exports = React.createClass({
             filters.push(`re${width}-${height}`);
         } else if (!width && height) {
             filters.push(`h${height}`);
-        } else if (height && !width) {
+        } else if (!height && width) {
             filters.push(`w${width}`);
         }
         // set quality
@@ -112,15 +112,16 @@ module.exports = React.createClass({
     },
 
     getVideoUrl: function(res, options) {
-        // TODO: select video based on bandwidth/resolution
-        var versionPath = '';
-        return `${this.props.serverAddress}${res.url}${versionPath}`;
+        var url = `${this.props.serverAddress}${res.url}`;
+        if (options && options.version) {
+            var version = res.versions[options.version];
+            url += `.${options.version}.${version.format}`;
+        }
+        return url;
     },
 
     getAudioUrl: function(res, options) {
-        // TODO: select audio based on bandwidth
-        var versionPath = '';
-        return `${this.props.serverAddress}${res.url}${versionPath}`;
+        return this.getVideoUrl(res, options);
     },
 
     /**

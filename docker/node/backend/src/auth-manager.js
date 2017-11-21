@@ -32,8 +32,7 @@ function start() {
     app.get('/auth/session/:token', handleSessionRetrieval);
     app.post('/auth/session/:token/end', handleSessionTermination);
     app.post('/auth/htpasswd', handleHttpasswdRequest);
-    app.get('/auth/:provider', handleOAuthActivationRequest, handleOAuthRequest);
-    app.get('/auth/:provider/:callback', handleOAuthActivationRequest, handleOAuthRequest);
+    app.get('/auth/:provider/:callback?', handleOAuthTestRequest, handleOAuthActivationRequest, handleOAuthRequest);
     server = app.listen(80);
 
     cleanUpInterval = setInterval(removeUnusedAuthorizationObjects, 60 * 60 * 1000);
@@ -118,9 +117,7 @@ function handleSessionStart(req, res) {
         }).then((authentication) => {
             // send list of available strategies to client, along with the
             // authentication token
-            var criteria = {
-                deleted: false,
-            };
+            var criteria = { disabled: false, deleted: false };
             return Server.find(db, 'global', criteria, '*').then((servers) => {
                 var providers = _.filter(_.map(servers, (server) => {
                     if (canProvideAccess(server, area)) {
@@ -174,19 +171,24 @@ function handleHttpasswdRequest(req, res) {
                 throw new HttpError(400);
             }
             var htpasswdPath = process.env.HTPASSWD_PATH;
+            if (!htpasswdPath) {
+                throw new HttpError(403);
+            }
             return FS.readFileAsync(htpasswdPath, 'utf-8').then((data) => {
                 return HtpasswdAuth.authenticate(username, password, data);
             }).catch((err) => {
-                return false;
+                if (err.code === 'ENOENT') {
+                    // password file isn't there
+                    throw new HttpError(403);
+                } else {
+                    throw err;
+                }
             }).then((successful) => {
                 if (successful !== true) {
                     return Promise.delay(Math.random() * 1000).return(null);
                 }
-                var criteria = {
-                    username,
-                    deleted: false,
-                };
-                var userColumns = 'id, type, approved, requested_project_ids';
+                var criteria = { username, deleted: false };
+                var userColumns = 'id, type, requested_project_ids';
                 return User.findOne(db, 'global', criteria, userColumns).then((user) => {
                     if (!user) {
                         // create the admin user if it's not there
@@ -245,7 +247,7 @@ function handleSessionRetrieval(req, res) {
             }
             // see which projects the user has access to
             var userId = authorization.user_id;
-            var userColumns = 'id, type, approved, requested_project_ids';
+            var userColumns = 'id, type, requested_project_ids';
             return User.findOne(db, 'global', { id: userId }, userColumns).then((user) => {
                 return {
                     authorization: {
@@ -301,10 +303,7 @@ function handleOAuthRequest(req, res, done) {
             if (!authentication) {
                 throw new HttpError(400);
             }
-            var criteria = {
-                id: serverId,
-                deleted: false,
-            };
+            var criteria = { id: serverId, deleted: false };
             return Server.findOne(db, 'global', criteria, '*').then((server) => {
                 if (!server) {
                     throw new HttpError(400);
@@ -339,8 +338,8 @@ function handleOAuthRequest(req, res, done) {
  * @param  {Response}  res
  * @param  {Function}  done
  */
-function handleOAuthActivationRequest(req, res, done) {
-    if (!req.query.activation) {
+function handleOAuthTestRequest(req, res, done) {
+    if (!req.query.test) {
         done();
         return;
     }
@@ -350,10 +349,48 @@ function handleOAuthActivationRequest(req, res, done) {
     Database.open().then((db) => {
         // make sure we have admin access
         return Authorization.check(db, token, 'admin').then((userId) => {
-            var criteria = {
-                id: serverId,
-                deleted: false,
-            };
+            var criteria = { id: serverId, deleted: false };
+            return Server.findOne(db, 'global', criteria, '*').then((server) => {
+                if (!server) {
+                    throw new HttpError(400);
+                }
+                var params = { test: 1, sid: serverId, token };
+                var scope;
+                return authenticateThruPassport(req, res, server, params, scope);
+            });
+        });
+    }).then(() => {
+        var html = `
+            <h1>Success</h1>
+        `;
+        sendResponse(res, html);
+    }).catch((err) => {
+        // TODO: display error as HTML
+        sendError(res, err);
+    });
+}
+
+/**
+ * Acquire access token from an OAuth provider
+ *
+ * @param  {Request}   req
+ * @param  {Response}  res
+ * @param  {Function}  done
+ */
+function handleOAuthActivationRequest(req, res, done) {
+    console.log('activation');
+    if (!req.query.activation) {
+        console.log('not activation');
+        done();
+        return;
+    }
+
+    var serverId = parseInt(req.query.sid);
+    var token = req.query.token;
+    Database.open().then((db) => {
+        // make sure we have admin access
+        return Authorization.check(db, token, 'admin').then((userId) => {
+            var criteria = { id: serverId, deleted: false };
             return Server.findOne(db, 'global', criteria, '*').then((server) => {
                 if (!server) {
                     throw new HttpError(400);
@@ -412,10 +449,10 @@ function handleOAuthActivationRequest(req, res, done) {
  */
 function authorizeUser(db, user, authentication, authType, serverId, details) {
     if (!user) {
-        return Promise.resolve(new HttpError(401));
+        return Promise.reject(new HttpError(401));
     }
     if (authentication.area === 'admin' && user.type !== 'admin') {
-        return Promise.resolve(new HttpError(403));
+        return Promise.reject(new HttpError(403));
     }
     // update Authentication record
     authentication.type = authType;
@@ -554,7 +591,7 @@ function findMatchingUser(db, server, account) {
             }
             var criteria = { email, deleted: false };
             return User.findOne(db, 'global', criteria, 'id, type, external');
-        }).then((user) => {
+        }, null).then((user) => {
             if (user) {
                 user.external.push({
                     type: server.type,
@@ -581,7 +618,6 @@ function findMatchingUser(db, server, account) {
 function createNewUser(db, server, account) {
     var profile = account.profile;
     var preferredUsername = proposeUsername(profile);
-    var autoApprove = _.get(server.settings, 'user.automatic_approval', false);
     var userType = _.get(server.settings, 'user.type');
     if (!userType) {
         throw new HttpError(403);
@@ -591,7 +627,6 @@ function createNewUser(db, server, account) {
             username: preferredUsername,
             type: userType,
             details: extractUserDetails(server.type, profile._json),
-            approved: autoApprove,
             external: [
                 {
                     type: server.type,
@@ -717,9 +752,6 @@ function retrieveProfileImage(profile) {
     };
     return new Promise((resolve, reject) => {
         Request.post(options, (err, resp, body) => {
-            if (!err && resp && resp.statusCode >= 400) {
-                err = new HttpError(resp.statusCode);
-            }
             if (!err) {
                 var image = body;
                 resolve(image);

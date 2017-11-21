@@ -31,7 +31,7 @@ Shell.chdir(__dirname);
 
 Shell.chdir('trambar/client');
 Shell.run('npm install');
-Shell.run('npm run build mobile');
+Shell.run('npm run build cordova');
 Shell.chdir(__dirname);
 
 // copy files into Docker folder
@@ -39,5 +39,5 @@ Folder.copy('trambar/admin/www', 'docker/nginx/admin');
 Folder.copy('trambar/client/www', 'docker/nginx/client');
 Folder.copy('trambar/backend', 'docker/node/backend');
 Folder.copy('trambar/common', 'docker/node/common');
-Folder.copy('trambar/client/www-mobile', 'cordova/trambar/www');
+Folder.copy('trambar/client/www-cordova', 'cordova/trambar/www');
 File.copy('trambar/backend/package.json', 'docker/node/package.json');

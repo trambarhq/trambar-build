@@ -174,7 +174,7 @@ module.exports = _.create(Data, {
      * @return {Promise<Array>}
      */
     import: function(db, schema, objects, originals, credentials, options) {
-        return Data.import.call(this, db, schema, objects, originals, credentials).map((projectReceived, index) => {
+        return Data.import.call(this, db, schema, objects, originals, credentials).mapSeries((projectReceived, index) => {
             var projectBefore = originals[index];
             if (projectReceived.name === 'global' || projectReceived.name === 'admin') {
                 throw new HttpError(409);

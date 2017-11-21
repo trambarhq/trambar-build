@@ -654,14 +654,10 @@ module.exports = {
      * @return {Promise<Array>}
      */
     import: function(db, schema, objects, originals, credentials, options) {
-        return Promise.map(objects, (object) => {
+        return Promise.mapSeries(objects, (objectReceived) => {
             // these properties cannot be modified from the client side
-            if (object.hasOwnProperty('gn') || object.hasOwnProperty('ctime') || object.hasOwnProperty('mtime')) {
-                return _.omit(object, 'gn', 'ctime', 'mtime');
-            }
-            return object;
+            return _.omit(objectReceived, 'gn', 'ctime', 'mtime');
         });
-        return Promise.resolve(objects);
     },
 
     /**
@@ -905,16 +901,16 @@ module.exports = {
      * @return {Promise<Array<Object>>}
      */
     findCached: function(db, schema, criteria, columns) {
+        // remove old ones
+        var time = new Date;
+        _.remove(this.cachedSearches, (search) => {
+            var elapsed = time - search.time;
+            if (elapsed > 5 * 60 * 1000) {
+                return true;
+            }
+        });
         var matchingSearch = _.find(this.cachedSearches, { schema, criteria, columns });
         if (matchingSearch) {
-            // remove old ones
-            var time = new Date;
-            _.remove(this.cachedSearches, (search) => {
-                var elapsed = time - search.time;
-                if (elapsed > 5 * 60 * 1000) {
-                    return true;
-                }
-            });
             return Promise.resolve(matchingSearch.results);
         } else {
             return this.find(db, schema, criteria, columns).then((results) => {

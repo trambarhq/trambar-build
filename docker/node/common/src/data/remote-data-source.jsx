@@ -20,7 +20,6 @@ module.exports = React.createClass({
         onAuthorization: PropTypes.func,
         onExpiration: PropTypes.func,
         onViolation: PropTypes.func,
-        onAlertClick: PropTypes.func,
     },
 
     /**
@@ -182,17 +181,23 @@ module.exports = React.createClass({
      *
      * @param  {Object} location
      * @param  {Object} oauthServer
+     * @param  {String} type
      *
      * @return {String}
      */
-    getActivationUrl: function(location, oauthServer) {
+    getOAuthUrl: function(location, oauthServer, type) {
         var address = this.getServerAddress(location);
         var session = getSession(address);
         if (!session.authorization) {
             return '';
         }
         var token = session.authorization.token;
-        var query = `activation=1&sid=${oauthServer.id}&token=${token}`;
+        var query = `sid=${oauthServer.id}&token=${token}`;
+        if (type === 'activation') {
+            query += '&activation=1';
+        } else if (type === 'test') {
+            query += '&test=1';
+        }
         var url = `${address}/auth/${oauthServer.type}?${query}`;
         return url;
     },
@@ -1151,7 +1156,7 @@ function getSession(address) {
 function getExpiredSessions() {
     var now = Moment().toISOString();
     return _.pickBy(sessions, (session) => {
-        if (!session.authorization) {
+        if (session && !session.authorization) {
             if (session.authentication && session.authentication.expire < now) {
                 return true;
             }
