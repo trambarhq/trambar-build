@@ -1,9 +1,10 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var Database = require('database');
+var TaskLog = require('external-services/task-log');
 
+var Import = require('external-services/import');
 var Transport = require('gitlab-adapter/transport');
-var Import = require('gitlab-adapter/import');
 
 // accessors
 var Project = require('accessors/project');
@@ -24,7 +25,26 @@ exports.removeProjectHook = removeProjectHook;
  * @return {Promise}
  */
 function installHooks(db, host) {
-    return forEachProject(db, installProjectHook, host);
+    return getRepoAssociations(db).then((associations) => {
+        var servers = _.uniqBy(_.map(associations, 'server'), 'id');
+        return Promise.each(servers, (server) => {
+            var taskLog = TaskLog.start(server, 'gitlab-hook-install');
+            var serverAssociations = _.filter(associations, (a) => {
+                return a.server.id === server.id;
+            });
+            var added = []
+            return Promise.each(serverAssociations, (sa, index, count) => {
+                return installProjectHook(host, sa.server, sa.repo, sa.project).tap(() => {
+                    added.push(sa.repo.name);
+                    taskLog.report(index + 1, count, { added });
+                });
+            }).tap(() => {
+                taskLog.finish();
+            }).tapCatch((err) => {
+                taskLog.abort(err);
+            });
+        });
+    });
 }
 
 /**
@@ -36,19 +56,37 @@ function installHooks(db, host) {
  * @return {Promise}
  */
 function removeHooks(db, host) {
-    return forEachProject(db, removeProjectHook, host);
+    return getRepoAssociations(db).then((associations) => {
+        var servers = _.uniqBy(_.map(associations, 'server'), 'id');
+        return Promise.each(servers, (server) => {
+            var taskLog = TaskLog.start(server, 'gitlab-hook-remove');
+            var serverAssociations = _.filter(associations, (a) => {
+                return a.server.id === server.id;
+            });
+            var deleted = [];
+            return Promise.each(serverAssociations, (sa, index, count) => {
+                return removeProjectHook(host, sa.server, sa.repo, sa.project).then(() => {
+                    deleted.push(sa.repo.name);
+                    taskLog.report(index + 1, count, { deleted });
+                });
+            }).tap(() => {
+                taskLog.finish();
+            }).tapCatch((err) => {
+                taskLog.abort(err);
+            });
+        });
+    });
 }
 
 /**
- * Call function on every project in the database
+ * Return a list of objects containing project, repo, and server
  *
  * @param  {Database} db
- * @param  {Function} f
- * @param  {String} host
  *
- * @return {Promise}
+ * @return {Array<Object>}
  */
-function forEachProject(db, f, host) {
+function getRepoAssociations(db) {
+    var list = [];
     // load projects
     var criteria = {
         deleted: false
@@ -70,10 +108,10 @@ function forEachProject(db, f, host) {
                 if (!server) {
                     return;
                 }
-                return f(host, server, repo, project);
+                list.push({ server, repo, project });
             });
         });
-    });
+    }).return(list);
 }
 
 /**

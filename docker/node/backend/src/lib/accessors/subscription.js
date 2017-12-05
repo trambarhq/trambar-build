@@ -134,4 +134,23 @@ module.exports = _.create(Data, {
             return subscriptionReceived;
         });
     },
+
+    /**
+     * See if a database change event is relevant to a given user
+     *
+     * @param  {Object} event
+     * @param  {User} user
+     * @param  {Subscription} subscription
+     *
+     * @return {Boolean}
+     */
+    isRelevantTo: function(event, user, subscription) {
+        if (Data.isRelevantTo.call(this, event, user, subscription)) {
+            // subscriptions aren't read by client app
+            if (subscription.area === 'admin') {
+                return true;
+            }
+        }
+        return false;
+    },
 });

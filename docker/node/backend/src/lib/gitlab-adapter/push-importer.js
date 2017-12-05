@@ -2,7 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 
-var Import = require('gitlab-adapter/import');
+var Import = require('external-services/import');
 var PushReconstructor = require('gitlab-adapter/push-reconstructor');
 var PushDecorator = require('gitlab-adapter/push-decorator');
 var UserImporter = require('gitlab-adapter/user-importer');
@@ -56,7 +56,7 @@ function importEvent(db, server, repo, project, author, glEvent) {
             var link = Import.Link.merge(commitLink, repoLink);
             var storyNew = copyPushProperties(null, author, push, components, glEvent, link);
             return Story.insertOne(db, schema, storyNew).then((story) => {
-                return CommentImporter.importComments(db, server, project, story).return(story);
+                return CommentImporter.importComments(db, server, repo, project, story).return(story);
             });
         });
     });

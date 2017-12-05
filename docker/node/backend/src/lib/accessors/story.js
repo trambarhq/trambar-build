@@ -277,6 +277,27 @@ module.exports = _.create(ExternalData, {
     },
 
     /**
+     * See if a database change event is relevant to a given user
+     *
+     * @param  {Object} event
+     * @param  {User} user
+     * @param  {Subscription} subscription
+     *
+     * @return {Boolean}
+     */
+    isRelevantTo: function(event, user, subscription) {
+        if (ExternalData.isRelevantTo(event, user, subscription)) {
+            if (event.current.published && event.current.ready) {
+                return true;
+            }
+            if (_.includes(event.current.user_ids, user.id)) {
+                return true;
+            }
+        }
+        return false;
+    },
+
+    /**
      * Throw an exception if modifications aren't permitted
      *
      * @param  {Object} storyReceived
@@ -295,8 +316,11 @@ module.exports = _.create(ExternalData, {
             if (storyReceived.hasOwnProperty('user_ids')) {
                 if (!_.isEqual(storyReceived.user_ids, storyBefore.user_ids)) {
                     if (storyBefore.user_ids[0] !== credentials.user.id) {
-                        // only the main author can modify the list
-                        throw new HttpError(400);
+                        // a coauthor can remove himself only
+                        var withoutCurrentUser = _.without(storyBefore.user_ids, credentials.user.id);
+                        if (!_.isEqual(storyReceived.user_ids, withoutCurrentUser)) {
+                            throw new HttpError(400);
+                        }
                     }
                     if (storyReceived.user_ids[0] !== storyBefore.user_ids[0]) {
                         // cannot make someone else the lead author

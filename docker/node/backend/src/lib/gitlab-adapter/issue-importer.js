@@ -3,8 +3,8 @@ var Promise = require('bluebird');
 var Moment = require('moment');
 var TagScanner = require('utils/tag-scanner');
 
+var Import = require('external-services/import');
 var Transport = require('gitlab-adapter/transport');
-var Import = require('gitlab-adapter/import');
 var UserImporter = require('gitlab-adapter/user-importer');
 var CommentImporter = require('gitlab-adapter/comment-importer');
 
@@ -24,26 +24,26 @@ exports.importEvent = importEvent;
  * @param  {User} author
  * @param  {Object} glEvent
  *
- * @return {Promise}
+ * @return {Promise<Story>}
  */
 function importEvent(db, server, repo, project, author, glEvent) {
     var schema = project.name;
     var repoLink = Import.Link.find(repo, server);
     return fetchIssue(server, repoLink.project.id, glEvent.target_id).then((glIssue) => {
         // the story is linked to both the issue and the repo
-        var issueLink = {
-            type: 'gitlab',
+        var link = _.merge({}, repoLink, {
             issue: { id: glIssue.id }
-        };
-        var link = _.merge({}, repoLink, issueLink);
+        });
         var storyNew = copyIssueProperties(null, author, glIssue, link);
         return Story.insertOne(db, schema, storyNew).then((story) => {
-            return UserImporter.importUsers(db, server, glIssue.assignees).each((assignee) => {
-                var reactionNew = copyAssignmentProperties(null, story, assignee, glIssue, link);
-                return Reaction.saveOne(db, schema, reactionNew);
+            return Promise.each(glIssue.assignees, (glUser) => {
+                return UserImporter.findUser(db, server, glUser).then((assignee) => {
+                    var reactionNew = copyAssignmentProperties(null, story, assignee, glIssue, link);
+                    return Reaction.saveOne(db, schema, reactionNew);
+                });
             }).then(() => {
                 if (glIssue.user_notes_count > 0) {
-                    return CommentImporter.importComments(db, server, project, story);
+                    return CommentImporter.importComments(db, server, repo, project, story);
                 }
             }).return(story);
         });
@@ -63,7 +63,7 @@ function updateStory(db, server, story) {
     var schema = project.name;
     var link = Import.Link.find(story, server);
     return fetchIssue(server, link.project.id, link.issue.id).then((glIssue) => {
-        return UserImport.importUser(db, server, glIssue.author).then((author) => {
+        return UserImport.findUser(db, server, glIssue.author).then((author) => {
             var storyAfter = copyIssueProperties(story, author, glIssue, link);
             if (storyAfter) {
                 return Story.updateOne(db, schema, storyAfter);

@@ -163,6 +163,9 @@ module.exports = {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
+        if (this.schema === 'global') {
+            return true;
+        }
         if (subscription.schema === '*' || subscription.schema === event.schema) {
             return true;
         }
@@ -224,10 +227,10 @@ module.exports = {
         });
 
         if (typeof(criteria.limit) === 'number') {
-            criteria.limit = criteria.limit;
+            query.limit = criteria.limit;
         }
         if (typeof(criteria.order) === 'string') {
-            var parts = _.split(/\s+/, criteria.order);
+            var parts = _.split(criteria.order, /\s+/);
             var column = parts[0];
             var dir = _.toLower(parts[1]);
             if (this.columns.hasOwnProperty(column)) {
@@ -290,6 +293,8 @@ module.exports = {
      * @return {Promise<Object>}
      */
     findOne: function(db, schema, criteria, columns) {
+        criteria = _.clone(criteria);
+        criteria.limit = 1;
         return this.find(db, schema, criteria, columns).get(0).then((row) => {
             return row || null;
         });
@@ -328,15 +333,17 @@ module.exports = {
         _.each(columns, (name) => {
             if (row.hasOwnProperty(name)) {
                 var value = row[name];
-                if (name !== 'id') {
-                    if (value instanceof String) {
-                        // a boxed string--just insert it into the query
-                        assignments.push(`${name} = ${value.valueOf()}`);
+                if (value !== undefined) {
+                    if (name !== 'id') {
+                        if (value instanceof String) {
+                            // a boxed string--just insert it into the query
+                            assignments.push(`${name} = ${value.valueOf()}`);
+                        } else {
+                            assignments.push(`${name} = $${parameters.push(value)}`);
+                        }
                     } else {
-                        assignments.push(`${name} = $${parameters.push(value)}`);
+                        id = value;
                     }
-                } else {
-                    id = value;
                 }
             }
         });
@@ -369,11 +376,13 @@ module.exports = {
         _.each(columns, (name) => {
             if (values.hasOwnProperty(name)) {
                 var value = values[name];
-                if (value instanceof String) {
-                    // a boxed string--just insert it into the query
-                    assignments.push(`${name} = ${value.valueOf()}`);
-                } else {
-                    assignments.push(`${name} = $${parameters.push(value)}`);
+                if (value !== undefined) {
+                    if (value instanceof String) {
+                        // a boxed string--just insert it into the query
+                        assignments.push(`${name} = ${value.valueOf()}`);
+                    } else {
+                        assignments.push(`${name} = $${parameters.push(value)}`);
+                    }
                 }
             }
         });
@@ -423,7 +432,8 @@ module.exports = {
         // see which columns are being set
         _.each(rows, (row) => {
             _.each(columns, (name) => {
-                if (row.hasOwnProperty(name)) {
+                var value = row[name];
+                if (value !== undefined) {
                     if (columnsPresent.indexOf(name) === -1) {
                         columnsPresent.push(name);
                         if (name === 'id') {
@@ -436,8 +446,8 @@ module.exports = {
         _.each(rows, (row) => {
             var values = [];
             _.each(columnsPresent, (name) => {
-                if (row.hasOwnProperty(name)) {
-                    var value = row[name];
+                var value = row[name];
+                if (value !== undefined) {
                     if (value instanceof String) {
                         // a boxed string--just insert it into the query
                         values.push(value.valueOf());
@@ -478,6 +488,9 @@ module.exports = {
      * @return {Promise<Object>}
      */
     insertOne: function(db, schema, row) {
+        if (!row) {
+            return Promise.reject(new Error('Cannot insert empty row'));
+        }
         return this.insert(db, schema, [ row ]).get(0).then((row) => {
             return row || null;
         });

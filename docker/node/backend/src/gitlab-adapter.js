@@ -4,10 +4,11 @@ var Express = require('express');
 var BodyParser = require('body-parser');
 var DNSCache = require('dnscache');
 var Database = require('database');
+var Shutdown = require('shutdown');
 var TaskQueue = require('utils/task-queue');
-var StoryTypes = require('data/story-types');
+var StoryTypes = require('objects/types/story-types');
 
-var Import = require('gitlab-adapter/import');
+var Import = require('external-services/import');
 var HookManager = require('gitlab-adapter/hook-manager');
 var CommentImporter = require('gitlab-adapter/comment-importer');
 var CommentExporter = require('gitlab-adapter/comment-exporter');
@@ -489,14 +490,4 @@ if (process.argv[1] === __filename) {
     start();
 }
 
-_.each(['SIGTERM', 'SIGUSR2'], (sig) => {
-    process.on(sig, function() {
-        stop().then(() => {
-            process.exit(0);
-        });
-    });
-});
-
-process.on('uncaughtException', function(err) {
-    console.error(err);
-});
+Shutdown.on(stop);

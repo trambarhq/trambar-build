@@ -16,9 +16,13 @@ module.exports = _.create(Data, {
         details: Object,
         action: String,
         token: String,
+        options: Object,
         details: Object,
         completion: Number,
+        failed: Boolean,
+        noop: Boolean,
         user_id: Number,
+        server_id: Number,
         etime: String,
     },
     criteria: {
@@ -27,7 +31,15 @@ module.exports = _.create(Data, {
         action: String,
         token: String,
         completion: Number,
+        failed: Boolean,
+        noop: Boolean,
         deleted: Boolean,
+        user_id: Number,
+        server_id: Number,
+        etime: String,
+
+        newer_than: String,
+        older_than: String,
     },
 
     /**
@@ -49,10 +61,13 @@ module.exports = _.create(Data, {
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
                 action varchar(64) NOT NULL,
-                token varchar(64) NULL,
+                token varchar(64),
                 options jsonb NOT NULL DEFAULT '{}',
                 completion int NOT NULL DEFAULT 0,
+                failed boolean NOT NULL DEFAULT false,
+                noop boolean NOT NULL DEFAULT false,
                 user_id int,
+                server_id int,
                 etime timestamp,
                 PRIMARY KEY (id)
             );
@@ -70,31 +85,34 @@ module.exports = _.create(Data, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted' ];
+            var propNames = [ 'action', 'user_id', 'server_id', 'noop', 'failed', 'deleted' ];
             return this.createNotificationTriggers(db, schema, propNames);
         });
     },
 
     /**
-     * Create a trigger on this table that updates another table
+     * Add conditions to SQL query based on criteria object
      *
-     * @param  {Database} db
-     * @param  {String} schema
-     * @param  {String} triggerName
-     * @param  {String} method
-     * @param  {Array<String>} arguments
+     * @param  {Object} criteria
+     * @param  {Object} query
      *
-     * @return {Promise<Boolean>}
+     * @return {Promise}
      */
-    createUpdateTrigger: function(db, schema, triggerName, method, arguments) {
-        var table = this.getTableName(schema);
-        var sql = `
-            CREATE TRIGGER "${triggerName}"
-            AFTER UPDATE ON ${table}
-            FOR EACH ROW
-            EXECUTE PROCEDURE "${method}"(${arguments.join(', ')});
-        `;
-        return db.execute(sql).return(true);
+    apply: function(criteria, query) {
+        var special = [
+            'newer_than',
+            'older_than',
+        ];
+        Data.apply.call(this, _.omit(criteria, special), query);
+
+        var params = query.parameters;
+        var conds = query.conditions;
+        if (criteria.newer_than !== undefined) {
+            conds.push(`ctime > $${params.push(criteria.newer_than)}`);
+        }
+        if (criteria.older_than !== undefined) {
+            conds.push(`ctime < $${params.push(criteria.older_than)}`);
+        }
     },
 
     /**
@@ -117,8 +135,11 @@ module.exports = _.create(Data, {
                 object.action = row.action;
                 object.token = row.token;
                 object.user_id = row.user_id;
+                object.server_id = row.server_id;
                 object.options = row.options;
                 object.completion = row.completion;
+                object.etime = row.etime;
+                object.failed = row.failed;
             });
             return objects;
         });
@@ -151,5 +172,54 @@ module.exports = _.create(Data, {
                 return taskReceived;
             });
         });
+    },
+
+    /**
+     * See if a database change event is relevant to a given user
+     *
+     * @param  {Object} event
+     * @param  {User} user
+     * @param  {Subscription} subscription
+     *
+     * @return {Boolean}
+     */
+    isRelevantTo: function(event, user, subscription) {
+        if (Data.isRelevantTo(event, user, subscription)) {
+            if (event.current.noop) {
+                return false;
+            }
+            if (event.current.user_id) {
+                if (event.current.user_id === user.id) {
+                    return true;
+                }
+            } else {
+                if (subscription.area === 'admin') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    },
+
+    /**
+     * Create a trigger on this table that updates another table
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {String} triggerName
+     * @param  {String} method
+     * @param  {Array<String>} arguments
+     *
+     * @return {Promise<Boolean>}
+     */
+    createUpdateTrigger: function(db, schema, triggerName, method, arguments) {
+        var table = this.getTableName(schema);
+        var sql = `
+            CREATE TRIGGER "${triggerName}"
+            AFTER UPDATE ON ${table}
+            FOR EACH ROW
+            EXECUTE PROCEDURE "${method}"(${arguments.join(', ')});
+        `;
+        return db.execute(sql).return(true);
     },
 });

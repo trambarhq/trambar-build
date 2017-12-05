@@ -6,6 +6,7 @@ var Moment = require('moment');
 var HttpRequest = require('transport/http-request');
 var HttpError = require('errors/http-error');
 var LocalSearch = require('data/local-search');
+var SessionStartTime = require('data/session-start-time');
 
 module.exports = React.createClass({
     displayName: 'RemoteDataSource',
@@ -20,6 +21,7 @@ module.exports = React.createClass({
         onAuthorization: PropTypes.func,
         onExpiration: PropTypes.func,
         onViolation: PropTypes.func,
+        onStupefaction: PropTypes.func,
     },
 
     /**
@@ -264,6 +266,7 @@ module.exports = React.createClass({
      */
     find: function(query) {
         var byComponent = _.get(query, 'by.constructor.displayName',)
+        var required = query.required;
         query = getSearchQuery(query);
         var search = this.findRecentSearch(query);
         if (search) {
@@ -292,7 +295,11 @@ module.exports = React.createClass({
                     }
                 }
             } else if (search.promise.isRejected()) {
-                search.promise = this.searchRemoteDatabase(search).then(() => {
+                search.promise = this.searchRemoteDatabase(search).then((changed) => {
+                    if (changed) {
+                        this.triggerChangeEvent();
+                        return null;
+                    }
                     return search.results;
                 });
             }
@@ -322,7 +329,12 @@ module.exports = React.createClass({
                 if (localDataValid) {
                     return false;
                 }
-                return this.searchRemoteDatabase(search);
+                return this.searchRemoteDatabase(search).then((changed) => {
+                    if (changed) {
+                        this.triggerChangeEvent();
+                        return null;
+                    }
+                });
             });
             search.promise = localSearchPromise.then((localDataValid) => {
                 if (localDataValid) {
@@ -349,7 +361,17 @@ module.exports = React.createClass({
             }
             this.setState({ recentSearchResults });
         }
-        return search.promise;
+        if (required && query.expected) {
+            return search.promise.then((results) => {
+                if (results.length < query.expected) {
+                    this.triggerStupefactionEvent(query, results);
+                    throw new HttpError(404);
+                }
+                return results;
+            });
+        } else {
+            return search.promise;
+        }
     },
 
     /**
@@ -514,7 +536,7 @@ module.exports = React.createClass({
      */
     triggerAuthorizationEvent: function(address, credentials) {
         if (this.props.onAuthorization) {
-            return this.props.onAuthorization({
+            this.props.onAuthorization({
                 type: 'authorization',
                 target: this,
                 address,
@@ -530,7 +552,7 @@ module.exports = React.createClass({
      */
     triggerExpirationEvent: function(address) {
         if (this.props.onExpiration) {
-            return this.props.onExpiration({
+            this.props.onExpiration({
                 type: 'expiration',
                 target: this,
                 address,
@@ -546,11 +568,28 @@ module.exports = React.createClass({
      */
     triggerViolationEvent: function(address, schema) {
         if (this.props.onViolation) {
-            return this.props.onViolation({
+            this.props.onViolation({
                 type: 'violation',
                 target: this,
                 address,
                 schema,
+            });
+        }
+    },
+
+    /**
+     * Inform parent component that query has yield fewer objects than expected
+     *
+     * @param  {Object} query
+     * @param  {Array<Object>} results
+     */
+    triggerStupefactionEvent: function(query, results) {
+        if (this.props.onStupefaction) {
+            this.props.onStupefaction({
+                type: 'missingobject',
+                target: this,
+                query,
+                results,
             });
         }
     },
@@ -588,6 +627,9 @@ module.exports = React.createClass({
      * @return {Promise<Boolean>}
      */
     searchRemoteDatabase: function(search) {
+        if (search.schema === 'local') {
+            return Promise.resolve(false);
+        }
         var location = getSearchLocation(search);
         var query = getSearchQuery(search);
         search.start = getCurrentTime();
@@ -1128,7 +1170,7 @@ function getSearchLocation(search) {
  * @return {Object}
  */
 function getSearchQuery(search) {
-    return _.pick(search, 'address', 'schema', 'table', 'criteria', 'minimum');
+    return _.pick(search, 'address', 'schema', 'table', 'criteria', 'minimum', 'expected');
 }
 
 var sessions = {};
@@ -1225,7 +1267,7 @@ function isSufficientlyCached(search) {
 /**
  * Check if the number of object retrieved from cache meet expectation
  *
- * @param  {[type]}  search
+ * @param  {Object}  search
  *
  * @return {Boolean}
  */
@@ -1253,7 +1295,7 @@ function isSufficientlyRecent(search, refreshInterval) {
     }
     var rtimes = _.map(search.results, 'rtime');
     var minRetrievalTime = _.min(rtimes);
-    if (minRetrievalTime < sessionStartTime) {
+    if (minRetrievalTime < SessionStartTime) {
         // one of the objects was retrieved in an earlier session
         return false;
     }
@@ -1267,8 +1309,6 @@ function isSufficientlyRecent(search, refreshInterval) {
     search.finish = minRetrievalTime;
     return true;
 }
-
-var sessionStartTime = (new Date).toISOString();
 
 /**
  * Return the number of object expected

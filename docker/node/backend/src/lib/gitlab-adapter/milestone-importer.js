@@ -3,8 +3,8 @@ var Promise = require('bluebird');
 var Moment = require('moment');
 var TagScanner = require('utils/tag-scanner');
 
+var Import = require('external-services/import');
 var Transport = require('gitlab-adapter/transport');
-var Import = require('gitlab-adapter/import');
 
 // accessors
 var Story = require('accessors/story');
@@ -21,7 +21,7 @@ exports.importEvent = importEvent;
  * @param  {User} author
  * @param  {Object} glEvent
  *
- * @return {Promise}
+ * @return {Promise<Story>}
  */
 function importEvent(db, server, repo, project, author, glEvent) {
     var schema = project.name;

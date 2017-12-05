@@ -193,9 +193,11 @@ function createStoryNotifications(db, event) {
                         return n.merge_master;
                     }
                 case 'branch': return n.branch;
-                case 'task-list': return n.task_list && _.includes(event.current.user_ids, user.id);
                 case 'survey': return n.survey;
                 case 'issue': return n.issue;
+                case 'coauthor':
+                    var newCoauthorIds = getNewCoauthorIds(event);
+                    return n.coauthor && _.includes(newCoauthorIds, user.id);
             }
         }).then((recipients) => {
             var schema = event.schema;
@@ -234,7 +236,6 @@ function getStoryNotificationTemplate(db, event) {
             switch (storyType) {
                 case 'push':
                 case 'merge':
-                case 'task-list':
                 case 'survey':
                 case 'issue':
                     notificationType = storyType;
@@ -242,8 +243,8 @@ function getStoryNotificationTemplate(db, event) {
             }
         } else {
             if (event.diff.user_ids) {
-                var newUserIds = _.different(event.current.user_ids, event.previous.user_ids);
-                if (!_.isEmpty(newUserIds)) {
+                var newCoauthorIds = getNewCoauthorIds(event);
+                if (!_.isEmpty(newCoauthorIds)) {
                     notificationType = 'coauthor';
                 }
             }
@@ -276,6 +277,19 @@ function getStoryNotificationTemplate(db, event) {
 }
 
 /**
+ * Return ids of new coauthors
+ *
+ * @param  {Object} event
+ *
+ * @return {Array<Number>}
+ */
+function getNewCoauthorIds(event) {
+    var coauthorIdsBefore = _.slice(event.previous.user_ids, 1);
+    var coauthorIdsAfter = _.slice(event.current.user_ids, 1);
+    return _.difference(coauthorIdsAfter, coauthorIdsBefore);
+}
+
+/**
  * Create notifications in response to a change to the table "user"
  *
  * @param  {Database} db
@@ -295,7 +309,7 @@ function createUserNotifications(db, event) {
             }
             var n = _.get(user, 'settings.notification', {});
             switch (template.type) {
-                case 'join_request': return n.join_request;
+                case 'join-request': return n.join_request;
             }
         }).then((recipients) => {
             return Promise.map(template.project_names, (schema) => {
@@ -334,7 +348,7 @@ function getUserNotificationTemplate(db, event) {
                 };
                 return Project.find(db, 'global', criteria, 'name').then((projects) => {
                     return {
-                        type: 'join_request',
+                        type: 'join-request',
                         user_id: event.id,
                         project_names: _.map(projects, 'name'),
                     };

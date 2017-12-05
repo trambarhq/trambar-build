@@ -229,7 +229,7 @@ module.exports = _.create(Data, {
      */
     updateNewMembers: function(db, schema, projectsReceived, projectsBefore, projectsAfter) {
         // first, obtain ids of projects that new members are added to
-        var newUserMemberships = {};
+        var newUserMemberships = {}, newMemberIds = [];
         _.each(projectsReceived, (projectReceived, index) => {
             var projectBefore = projectsBefore[index];
             var projectAfter = projectsAfter[index];
@@ -244,6 +244,7 @@ module.exports = _.create(Data, {
                         ids.push(projectAfter.id);
                     } else {
                         newUserMemberships[userId] = [ projectAfter.id ];
+                        newMemberIds.push(userId);
                     }
                 });
             }
@@ -253,9 +254,7 @@ module.exports = _.create(Data, {
         }
         // load the users and update requested_project_ids column
         var User = require('accessors/user');
-        var criteria = {
-            id: _.map(_.keys(newUserMemberships), parseInt)
-        };
+        var criteria = { id: newMemberIds };
         return User.find(db, schema, criteria, 'id, requested_project_ids').then((users) => {
             _.each(users, (user) => {
                 user.requested_project_ids = _.difference(user.requested_project_ids, newUserMemberships[user.id]);
@@ -323,47 +322,24 @@ module.exports = _.create(Data, {
         }
 
         // see if read-only access should be granted
-        var ms = project.settings.membership;
-        if (!ms) {
-            return false;
-        }
-        if (access === 'know' || access === 'read') {
-            // see if people can know about the project's existence
-            if (!ms.allow_request) {
-                return false;
-            }
-            if (access == 'know') {
+        if (access === 'know') {
+            // see if user can know about the project's existence
+            if (_.get(project, 'settings.access_control.grant_view_access')) {
                 return true;
             }
-        }
-        var ac = project.settings.access_control;
-        if (!ac) {
-            return false;
-        }
-        if (access === 'read') {
-            if (!_.includes(user.requested_project_ids, project.id)) {
-                // only users who wants to join the project can have
-                // read-only access
-                return false;
-            }
-            if (user.type === 'member') {
-                if (!ac.grant_team_members_read_only) {
-                    return false;
-                }
-            } else if(user.type === 'guest') {
-                if (user.approved) {
-                    if (!ac.grant_approved_users_read_only) {
-                        return false;
-                    }
-                } else {
-                    if (!ac.grant_unapproved_users_read_only) {
-                        return false;
-                    }
+            if (user.type === 'guest') {
+                if (_.get(project, 'settings.membership.allow_guest_request')) {
+                    return true;
                 }
             } else {
-                return false;
+                if (!_.get(project, 'settings.membership.allow_user_request')) {
+                    return true;
+                }
             }
-            return true;
+        } else if (access == 'read') {
+            if (_.get(project, 'settings.access_control.grant_view_access')) {
+                return true;
+            }
         }
         return false;
     }

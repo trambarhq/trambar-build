@@ -17,14 +17,14 @@ module.exports = React.createClass({
         };
     },
 
-    componentWillMount: function() {
+    render: function() {
+        return null;
+    },
+
+    componentDidMount: function() {
         if (this.props.show) {
             this.show();
         }
-    },
-
-    render: function() {
-        return null;
     },
 
     componentDidUpdate: function(prevProps) {

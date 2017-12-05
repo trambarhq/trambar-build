@@ -128,6 +128,33 @@ module.exports = _.create(ExternalData, {
     },
 
     /**
+     * Insert row, appending a number if a username conflict occurs
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {user} object
+     *
+     * @return {Promise<Object>}
+     */
+    insertUnique: function(db, schema, user) {
+        return this.insertOne(db, schema, user).catch((err) => {
+            // unique violation
+            if (err.code === '23505') {
+                user = _.clone(user);
+                var m = /(.*)(\d+)$/.exec(user.username);
+                if (m) {
+                    var number = parseInt(m[2]);
+                    user.username = m[1] + (number + 1);
+                } else {
+                    user.username += '2';
+                }
+                return this.insertUnique(db, schema, user);
+            }
+            throw err;
+        });
+    },
+
+    /**
      * Export database row to client-side code, omitting sensitive or
      * unnecessary information
      *
@@ -216,12 +243,37 @@ module.exports = _.create(ExternalData, {
         });
     },
 
+    /**
+     * See if a database change event is relevant to a given user
+     *
+     * @param  {Object} event
+     * @param  {User} user
+     * @param  {Subscription} subscription
+     *
+     * @return {Boolean}
+     */
+    isRelevantTo: function(event, user, subscription) {
+        if (ExternalData.isRelevantTo(event, user, subscription)) {
+            var columns = _.keys(event.diff);
+            var publicColumns = _.without(columns, 'settings');
+            if (!_.isEmpty(publicColumns)) {
+                return true;
+            }
+        }
+        return false;
+    },
+
+    /**
+     * Return true if user can join project
+     *
+     * @param  {User} user
+     * @param  {Project} project
+     *
+     * @return {Boolean}
+     */
     canJoin: function(user, project) {
         if (!project) {
             return false;
-        }
-        if (user.approved) {
-            return true;
         }
         if (user.type === 'guest') {
             return !!_.get(project, 'settings.membership.allow_guest_request');
@@ -230,12 +282,17 @@ module.exports = _.create(ExternalData, {
         }
     },
 
+    /**
+     * Return true if user would be accepted into project automatically
+     *
+     * @param  {User} user
+     * @param  {Project} project
+     *
+     * @return {Boolean}
+     */
     canJoinAutomatically: function(user, project) {
         if (_.includes(project.user_ids, user.id)) {
             // user is already a member
-            return true;
-        }
-        if (user.approved) {
             return true;
         }
         if (user.type === 'guest') {
@@ -270,10 +327,6 @@ module.exports = _.create(ExternalData, {
         }
         if (userReceived.deleted) {
             // users cannot delete themselves
-            throw new HttpError(400);
-        }
-        if (userReceived.approved) {
-            // user cannot approve himself
             throw new HttpError(400);
         }
     },
