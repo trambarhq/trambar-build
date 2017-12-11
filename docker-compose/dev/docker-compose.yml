@@ -196,7 +196,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
-      - CACHE_FOLDER=/var/cache/gitlab
+    #  - CACHE_FOLDER=/var/cache/gitlab
     extra_hosts:
       - gitlab.test:172.18.0.1
     command: [ nodemon, gitlab-adapter.js ]

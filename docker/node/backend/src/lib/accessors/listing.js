@@ -18,6 +18,7 @@ module.exports = _.create(LiveData, {
         atime: String,
         ltime: String,
         dirty: Boolean,
+        finalized: Boolean,
         type: String,
         filters: Object,
         filters_hash: String,
@@ -27,6 +28,7 @@ module.exports = _.create(LiveData, {
         id: Number,
         deleted: Boolean,
         dirty: Boolean,
+        finalized: Boolean,
         type: String,
         filters: Object,
         filters_hash: String,
@@ -56,6 +58,7 @@ module.exports = _.create(LiveData, {
                 atime timestamp,
                 ltime timestamp,
                 dirty boolean NOT NULL DEFAULT false,
+                finalized boolean NOT NULL DEFAULT true,
                 type varchar(32) NOT NULL DEFAULT '',
                 target_user_id int NOT NULL DEFAULT 0,
                 filters jsonb NOT NULL DEFAULT '{}',
@@ -76,7 +79,7 @@ module.exports = _.create(LiveData, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted', 'dirty', 'type', 'target_user_id' ];
+            var propNames = [ 'deleted', 'dirty', 'finalized', 'type', 'target_user_id' ];
             return this.createNotificationTriggers(db, schema, propNames);
         });
     },
@@ -103,7 +106,7 @@ module.exports = _.create(LiveData, {
         }
         if (criteria.has_candidates) {
             var storyIds = `$${params.push(criteria.has_candidates)}`;
-            conds.push(`"hasCandidates"(filters, ${storyIds})`);
+            conds.push(`"hasCandidates"(details, ${storyIds})`);
         }
     },
 
@@ -152,6 +155,14 @@ module.exports = _.create(LiveData, {
      * @return {Promise<Object>}
      */
     export: function(db, schema, rows, credentials, options) {
+        _.each(rows, (row) => {
+            if (!row.finalized) {
+                if (credentials.user.id === row.target_user_id) {
+                    // add new stories from list of candidates
+                    this.finalize(db, schema, row);
+                }
+            }
+        });
         return LiveData.export.call(this, db, schema, rows, credentials, options).then((objects) => {
             _.each(objects, (object, index) => {
                 var row = rows[index];
@@ -164,8 +175,6 @@ module.exports = _.create(LiveData, {
                 if (credentials.user.id !== row.target_user_id) {
                     throw new HttpError(403);
                 }
-                // add new stories from list of candidates
-                this.finalize(db, schema, row);
             });
             return objects;
         });
@@ -181,8 +190,21 @@ module.exports = _.create(LiveData, {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
+        if (subscription.area === 'admin') {
+            // admin console doesn't use this object currently
+            return false;
+        }
         if (LiveData.isRelevantTo(event, user, subscription)) {
             if (event.current.target_user_id === user.id) {
+                if (event.current.dirty) {
+                    // the row will be updated soon
+                    return false;
+                }
+                if (event.current.finalized) {
+                    // since finalization is caused by the client retrieving the
+                    // object, there's no point in informing it
+                    return false;
+                }
                 return true;
             }
         }
@@ -204,6 +226,7 @@ module.exports = _.create(LiveData, {
                     this.updateOne(db, schema, {
                         id: row.id,
                         details: row.details,
+                        finalized: true,
                     });
                 });
             }, 50);
@@ -213,14 +236,16 @@ module.exports = _.create(LiveData, {
                 // finalize other listings now for consistency sake
                 var criteria = {
                     type: row.type,
-                    target_user_id: row.target_user_id
+                    target_user_id: row.target_user_id,
+                    finalized: false,
                 };
                 return this.find(db, schema, criteria, '*').each((otherRow) => {
                     if (otherRow.id !== row.id) {
                         if (chooseStories(otherRow)) {
                             return this.updateOne(db, schema, {
                                 id: otherRow.id,
-                                details: otherRow.details
+                                details: otherRow.details,
+                                finalized: true,
                             });
                         }
                     }
@@ -230,14 +255,22 @@ module.exports = _.create(LiveData, {
     },
 });
 
+/**
+ * Move stories from candidate list into the chosen list, operating on the
+ * object passed directly
+ *
+ * @param  {Story} row
+ *
+ * @return {Boolean}
+ */
 function chooseStories(row) {
     var now = new Date;
     var limit = _.get(row.filters, 'limit', 100);
-    var retention = _.get(row.filters, 'retention', 8 * HOUR);
+    var retention = _.get(row.filters, 'retention', 24 * HOUR);
     var newStories = _.get(row.details, 'candidates', []);
     var oldStories = _.get(row.details, 'stories', []);
 
-    // we want to know as many new stories as possible
+    // we want to show as many new stories as possible
     var newStoryCount = newStories.length;
     // at the same time, we want to preserve as many old stories as we can
     var oldStoryCount = oldStories.length;
@@ -269,6 +302,8 @@ function chooseStories(row) {
                 extra -= removeOld;
 
                 if (extra > 0) {
+                    // there're no old stories at this point, so the difference
+                    // must come from the list of new ones
                     newStoryCount -= extra;
                 }
             }
@@ -276,24 +311,29 @@ function chooseStories(row) {
     }
     if (oldStoryCount !== oldStories.length || newStories.length > 0) {
         if (oldStoryCount !== oldStories.length) {
+            // remove older stories
             oldStories = _.slice(oldStories, oldStories.length - oldStoryCount);
         }
         if (newStoryCount !== newStories.length) {
-            var rtime = now.toISOString();
             // remove lowly rate stories
-            newStories = _.orderBy(newStories, [ 'rating', 'ptime' ], [ 'asc', 'asc' ]);
+            newStories = _.orderBy(newStories, [ 'rating', 'btime' ], [ 'asc', 'asc' ]);
             newStories = _.slice(newStories, newStories.length - newStoryCount);
-            newStories = _.orderBy(newStories, [ 'ptime' ], [ 'asc' ]);
-            newStories = _.map(newStories, (story) => {
-                return {
-                    id: story.id,
-                    ptime: story.ptime,
-                    rtime: rtime,
-                };
-            });
+            newStories = _.orderBy(newStories, [ 'btime' ], [ 'asc' ]);
         }
+        // don't need the info used to calculate rating any more
+        // just attach the retrieval time
+        var rtime = now.toISOString();
+        newStories = _.map(newStories, (story) => {
+            return {
+                id: story.id,
+                btime: story.btime,
+                rtime: rtime,
+            };
+        });
         row.details.stories = _.concat(oldStories, newStories);
         row.details.candidates = [];
+        // the object is going to be sent prior to being saved
+        // bump up the generation number manually
         row.gn += 1;
         return true;
     } else {

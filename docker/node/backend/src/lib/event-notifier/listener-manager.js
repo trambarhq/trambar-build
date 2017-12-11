@@ -6,6 +6,7 @@ var Http = require('http');
 var SockJS = require('sockjs');
 var Crypto = Promise.promisifyAll(require('crypto'));
 var HttpError = require('errors/http-error');
+var Shutdown = require('shutdown');
 
 // accessors
 var Subscription = require('accessors/subscription');
@@ -60,18 +61,11 @@ function listen() {
  * @return {Promise}
  */
 function shutdown() {
-    return new Promise((resolve, reject) => {
-        listeners = null;
-
-        if (server) {
-            server.close();
-            server.on('close', () => {
-                resolve();
-            });
-        } else {
-            resolve();
-        }
+    _.each(sockets, (socket) => {
+        socket.end();
     });
+    sockets = [];
+    return Shutdown.close(server);
 }
 
 /**
@@ -136,6 +130,7 @@ function sendToWebsockets(db, messages) {
             console.log(message.body);
             socket.write(JSON.stringify(message.body));
         } else {
+            console.log('Deleting subscription due to missing socket', subscription);
             subscription.deleted = true;
             return Subscription.updateOne(db, 'global', subscription);
         }

@@ -65,16 +65,7 @@ function start() {
 }
 
 function stop() {
-    return new Promise((resolve, reject) => {
-        if (server) {
-            server.close();
-            server.on('close', () => {
-                resolve();
-            });
-        } else {
-            resolve();
-        }
-    });
+    return Shutdown.close(server);
 }
 
 /**

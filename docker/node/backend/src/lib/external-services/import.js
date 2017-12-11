@@ -43,7 +43,7 @@ function join(object, link) {
  */
 function reacquire(object, link, objectName) {
     var attachedLink = join(object, link);
-    var object = link[objectName];
+    var object = attachedLink[objectName];
     if (!object) {
         throw new Error(`Link does not contain ${objectName}`);
     }
@@ -59,18 +59,20 @@ function reacquire(object, link, objectName) {
  * (if not, then it was changed)
  *
  * @param  {ExternalData} object
- * @param  {Object} previouslyImported
+ * @param  {Object} imported
  * @param  {String} name
  * @param  {*} value
  *
  * @return {[type]}
  */
-function set(object, previouslyImported, path, value) {
+function set(object, imported, path, value) {
     var currentValue = _.get(object, path);
-    var importedValue = _.get(previouslyImported, path);
+    var importedValue = _.get(imported, path);
     if (_.isEqual(currentValue, importedValue)) {
         _.set(object, path, value);
-        _.set(previouslyImported, path, value);
+        _.set(imported, path, value);
+    } else {
+        _.set(imported, path, value);
     }
 }
 
@@ -78,24 +80,30 @@ function set(object, previouslyImported, path, value) {
  * Add or replace a resource if was previously imported
  *
  * @param  {ExternalData} object
- * @param  {Object} previouslyImported
+ * @param  {Object} imported
  * @param  {String} type
  * @param  {Object} resource
  */
-function attach(object, previouslyImported, type, resource) {
+function attach(object, imported, type, resource) {
     // attach profile image
     if (resource) {
         var res = _.extend({ type }, resource);
         var currentResources = getResources(object);
-        var importedResources = getResources(previouslyImported);
+        var importedResources = getResources(imported);
         var currentIndex = _.findIndex(currentResources, { type });
+        var importedIndex = _.findIndex(importedResources, { type });
         if (currentIndex !== -1) {
-            // replace it only if was imported previously
-            var current = currentResources[currentIndex];
-            var importedIndex = _.findIndex(importedResources, current);
-            if (importedIndex !== -1) {
+            var currentRes = currentResources[currentIndex];
+            var importedRes = importedResources[importedIndex];
+            if (_.isEqual(currentRes, importedRes)) {
                 currentResources[currentIndex] = res;
                 importedResources[importedIndex] = res;
+            } else {
+                if (importedIndex !== -1) {
+                    importedResources[importedIndex] = res;
+                } else {
+                    importedResources.push(res);
+                }
             }
         } else {
             currentResources.push(res);
@@ -153,14 +161,17 @@ function find(object, server) {
  *
  * @param  {Server} server
  * @param  {Object} props
+ * @param  {Object...} parentLinks
  *
  * @return {Object}
  */
-function create(server, props) {
-    return _.merge({}, {
+function create(server, props, ...parentLinks) {
+    var link = _.merge({}, {
         type: server.type,
         server_id: server.id
     }, props);
+    attachParentLinks(link, parentLinks);
+    return link;
 }
 
 /**
@@ -198,6 +209,11 @@ function merge(link, ...parentLinks) {
     if (!link.server_id) {
         throw new Error('Merging a link with missing server_id');
     }
+    attachParentLinks(link, parentLinks);
+    return link;
+}
+
+function attachParentLinks(link, parentLinks) {
     _.each(parentLinks, (parentLink) => {
         if (parentLink.type !== link.type) {
             throw new Error('Cannot merge links of different types');
@@ -213,5 +229,4 @@ function merge(link, ...parentLinks) {
             }
         });
     });
-    return link;
 }

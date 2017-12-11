@@ -15,11 +15,21 @@ var DailyNotifications = require('analysers/daily-notifications');
 var ProjectDateRange = require('analysers/story-date-range');
 var StoryPopularity = require('analysers/story-popularity');
 
+// story raters
+var ByPopularity = require('story-raters/by-popularity');
+var ByRole = require('story-raters/by-role');
+var ByType = require('story-raters/by-type');
+
 var analysers = [
     DailyActivities,
     DailyNotifications,
     ProjectDateRange,
     StoryPopularity,
+];
+var storyRaters = [
+    ByPopularity,
+    ByRole,
+    ByType,
 ];
 var database;
 
@@ -32,21 +42,34 @@ function start() {
             return fetchDirtyListings(db);
         }).then(() => {
             var tables = [ 'listing', 'statistics' ];
-            return db.listen(tables, 'clean', handleCleanRequests);
+            return db.listen(tables, 'clean', handleCleanRequests, 0);
         }).then(() => {
-            return db.listen([ 'statistics' ], 'change', handleStatisticsChanges, 0)
+            // capture event for tables that the story raters are monitoring
+            // (for the purpose of cache invalidation)
+            var tables = _.filter(_.uniq(_.flatten(_.map(storyRaters, 'monitoring'))));
+            return db.listen(tables, 'change', handleDatabaseChanges, 0);
         });
     });
 }
 
 function stop() {
     if (database) {
-        database.close();
-        database = null;
+        return Statistics.relinquish(database).then(() => {
+            return Listing.relinquish(database).then(() => {
+                database.close();
+                database = null;
+            });
+        });
+    } else {
+        return Promise.resolve();
     }
-    return Promise.resolve();
 }
 
+/**
+ * Called by Postgres change notification triggers
+ *
+ * @param  {Array<Object>} events
+ */
 function handleCleanRequests(events) {
     // filter out events from other tests
     if (process.env.DOCKER_MOCHA) {
@@ -68,6 +91,21 @@ function handleCleanRequests(events) {
 }
 
 /**
+ * Called when monitored tables have changed
+ *
+ * @param  {Array<Object>} events
+ */
+function handleDatabaseChanges(events) {
+    _.each(events, (event) => {
+        _.each(storyRaters, (rater) => {
+            if (_.includes(rater.monitoring, event.table)) {
+                rater.handleEvent(event);
+            }
+        });
+    });
+}
+
+/**
  * Fetch dirty statistics records from database and place them in update queues
  *
  * @param  {Database} db
@@ -85,7 +123,7 @@ function fetchDirtyStatistics(db) {
 }
 
 /**
- * Fetch dirty statistics records from database and place them in update queues
+ * Fetch dirty listings from database and place them in update queues
  *
  * @param  {Database} db
  *
@@ -107,6 +145,14 @@ var statisticsUpdateQueues = {
     low: []
 };
 
+/**
+ * Add statistics row to update queue, with priority based on how recently
+ * it was accessed
+ *
+ * @param {String} schema
+ * @param {Number} id
+ * @param {String} atime
+ */
 function addToStatisticsQueue(schema, id, atime) {
     // use access time to determine priority of update
     var elapsed = getTimeElapsed(atime, new Date);
@@ -122,14 +168,14 @@ function addToStatisticsQueue(schema, id, atime) {
     // push item onto queue unless it's already there
     var item = { schema, id };
     var queue = statisticsUpdateQueues[priority];
-    if (!_.find(queue, item)) {
+    if (!_.some(queue, item)) {
         queue.push(item);
     }
 
     // remove it from the other queues
-    _.forIn(statisticsUpdateQueues, (otherQueue) => {
+    _.forIn(statisticsUpdateQueues, (otherQueue, priority) => {
         if (otherQueue !== queue) {
-            var index = _.find(otherQueue, item);
+            var index = _.findIndex(otherQueue, item);
             if (index !== -1) {
                 otherQueue.splice(index, 1);
             }
@@ -148,8 +194,8 @@ function processNextInStatisticsQueue() {
         // already in the middle of something
         return;
     }
-    var nextItem;
-    _.each(statisticsUpdateQueues, (queue, priority) => {
+    for (var priority in statisticsUpdateQueues) {
+        var queue = statisticsUpdateQueues[priority];
         var nextItem = queue.shift();
         if (nextItem) {
             updatingStatistics = true;
@@ -172,16 +218,28 @@ function processNextInStatisticsQueue() {
                 console.error(err)
                 setImmediate(processNextInStatisticsQueue);
             });
-            return false;
+            return;
         }
-    });
+    }
 }
 
+/**
+ * Update a statistics row, identified by id
+ *
+ * @param  {String} schema
+ * @param  {Number} id
+ *
+ * @return {Promise<Statistics|null>}
+ */
 function updateStatistics(schema, id) {
+    console.log(`Updating statistics in ${schema}: ${id}`);
     return Database.open().then((db) => {
         // establish a lock on the row first, so multiple instances of this
         // script won't waste time performing the same work
         return Statistics.lock(db, schema, id, '1 minute', 'gn, type, filters').then((row) => {
+            if (!row) {
+                return null;
+            }
             // regenerate the row
             var analyser = _.find(analysers, { type: row.type });
             if (!analyser) {
@@ -190,6 +248,8 @@ function updateStatistics(schema, id) {
             return analyser.generate(db, schema, row.filters).then((props) => {
                 // save the new data and release the lock
                 return Statistics.unlock(db, schema, id, props, 'gn');
+            }).catch((err) => {
+                return Statistics.unlock(db, schema, id).throw(err);
             });
         }).finally(() => {
             return db.close();
@@ -203,6 +263,14 @@ var listingUpdateQueues = {
     low: []
 };
 
+/**
+ * Add listing row to update queue, with priority based on how recently
+ * it was accessed
+ *
+ * @param {String} schema
+ * @param {Number} id
+ * @param {String} atime
+ */
 function addToListingQueue(schema, id, atime) {
     var elapsed = getTimeElapsed(atime, new Date);
     var priority = 'low';
@@ -214,14 +282,14 @@ function addToListingQueue(schema, id, atime) {
     // push item onto queue unless it's already there
     var item = { schema, id };
     var queue = listingUpdateQueues[priority];
-    if (!_.find(queue, item)) {
+    if (!_.some(queue, item)) {
         queue.push(item);
     }
 
     // remove it from the other queues
     _.forIn(listingUpdateQueues, (otherQueue) => {
         if (otherQueue !== queue) {
-            var index = _.find(otherQueue, item);
+            var index = _.findIndex(otherQueue, item);
             if (index !== -1) {
                 otherQueue.splice(index, 1);
             }
@@ -232,13 +300,16 @@ function addToListingQueue(schema, id, atime) {
 
 var updatingListing = false;
 
+/**
+ * Process the next item in the listing queues
+ */
 function processNextInListingQueue() {
     if (updatingListing) {
         // already in the middle of something
         return;
     }
-    var nextItem;
-    _.each(listingUpdateQueues, (queue, priority) => {
+    for (var priority in listingUpdateQueues) {
+        var queue = listingUpdateQueues[priority];
         var nextItem = queue.shift();
         if (nextItem) {
             updatingListing = true;
@@ -261,66 +332,77 @@ function processNextInListingQueue() {
                 console.error(err)
                 setImmediate(processNextInListingQueue);
             });
-            return false;
+            return;
         }
-    });
+    }
 }
 
+/**
+ * Update a statistics row, identified by id
+ *
+ * @param  {String} schema
+ * @param  {Number} id
+ *
+ * @return {Promise<Listing>}
+ */
 function updateListing(schema, id) {
+    console.log(`Updating listing in ${schema}: ${id}`);
+    var maxCandidateCount = 1000;
     return Database.open().then((db) => {
         // establish a lock on the row first, so multiple instances of this
         // script won't waste time performing the same work
-        return Listing.lock(db, schema, id, '1 minute', 'gn, type, filters, details').then((row) => {
-            var criteria = _.extend({}, row.filters, {
+        return Listing.lock(db, schema, id, '1 minute', 'gn, type, filters, details').then((listing) => {
+            if (!listing) {
+                return null;
+            }
+            var oldStories = _.get(listing.details, 'stories', []);
+            var newStories = _.get(listing.details, 'candidates', []);
+            var earliest = _.reduce(oldStories, (earliest, story) => {
+                if (!earliest || story.btime < earliest) {
+                    earliest = story.btime;
+                }
+                return earliest;
+            }, undefined);
+            // look for new stories matching filters that aren't in the listing yet
+            var filterCriteria = _.pick(listing.filters, _.keys(Story.criteria));
+            var criteria = _.extend({}, filterCriteria, {
                 published: true,
                 ready: true,
-                limit: 5000,
+                published_version_id: null,
+                exclude: _.map(_.concat(oldStories, newStories), 'id'),
+                bumped_after: earliest,
+                order: 'btime DESC',
+                limit: maxCandidateCount,
             });
-            var oldStories = _.get(row.details, 'stories', []);
-            var newStories = _.get(row.details, 'candidates', []);
-            var included = {};
-            var latest = '';
-            _.each(_.concat(oldStories, newStories), (story) => {
-                included[story.id] = true;
-                if (story.ptime > latest) {
-                    latest = story.ptime;
-                }
-            });
-            if (latest) {
-                criteria.published_version_id = null;
-                criteria.newer_than = latest;
-            }
-            return Story.find(db, schema, criteria, 'id, type, ptime').then((rows) => {
-                // add additional candidate stories to list
-                newStories = _.slice(newStories);
+            var columns = _.flatten(_.map(storyRaters, 'columns'));
+            columns = _.concat(columns, [ 'id', 'COALESCE(ptime, btime) AS btime' ]);
+            columns = _.uniq(columns);
+            return Story.find(db, schema, criteria, columns.join(', ')).then((rows) => {
+                // insert into list, order by btime
+                var candidates = _.slice(newStories);
                 _.each(rows, (row) => {
-                    if (!included[row.id]) {
-                        newStories.push(row);
-                    }
-                })
-            }).then(() => {
-                // fetch the popularity stats, from cache if possible
-                var async = false;
-                var popularity = {};
-                _.each(newStories, (story) => {
-                    var details = getStoryPopularity(schema, story.id);
-                    if (!details) {
-                        details = fetchStoryPopularity(db, schema, story.id);
-                        async = true;
-                    }
-                    popularity[story.id] = details;
+                    var index = _.sortedIndexBy(candidates, row, 'btime');
+                    candidates.splice(index, 0, row);
                 });
-                return (async) ? Promise.props(popularity) : popularity;
-            }).then((popularity) => {
-                // calculate the rating of each story
-                _.each(newStories, (story) => {
-                    var details = popularity[story.id] || {};
-                    story.rating = calculateStoryRating(story, details);
+                if (candidates.length > maxCandidateCount) {
+                    // remove older ones
+                    candidates.splice(0, candidates.length - maxCandidateCount);
+                }
+
+                // asynchronously retrieve data needed to rate the candidates
+                return prepareStoryRaterContexts(db, schema, candidates, listing).then((contexts) => {
+                    // calculate the rating of each candidate story
+                    _.each(candidates, (candidate) => {
+                        candidate.rating = calculateStoryRating(contexts, candidate);
+                    });
+
+                    // save the new candidate list
+                    var details = _.assign({}, listing.details, { candidates });
+                    var finalized = _.isEmpty(candidates);
+                    return Listing.unlock(db, schema, id, { details, finalized }, 'gn');
                 });
-            }).then(() => {
-                var details = _.clone(row.details);
-                details.candidates = newStories;
-                return Listing.unlock(db, schema, id, { details }, 'gn');
+            }).catch((err) => {
+                return Listing.unlock(db, schema, id).throw(err);
             });
         }).finally(() => {
             return db.close();
@@ -328,70 +410,48 @@ function updateListing(schema, id) {
     });
 }
 
-function calculateStoryRating(story, popularity) {
-    return 1;
+/**
+ * Call prepareContext() on each story raters
+ *
+ * @param  {Database} db
+ * @param  {String} schema
+ * @param  {Array<Story>} stories
+ * @param  {Listing} listing
+ *
+ * @return {Promise<Object>}
+ */
+function prepareStoryRaterContexts(db, schema, stories, listing) {
+    var contexts = {};
+    return Promise.each(storyRaters, (rater) => {
+        return rater.prepareContext(db, schema, stories, listing).then((context) => {
+            contexts[rater.name] = context;
+        });
+    }).return(contexts);
 }
 
-var popularityCache = {};
-
-function getStoryPopularity(schema, storyId) {
-    var keys = [ schema, storyId ];
-    var cacheEntry = _.get(popularityCache, keys);
-    if (cacheEntry) {
-        cacheEntry.atime = new Date;
-        return cacheEntry.details;
-    }
+/**
+ * Sum up the rating provider by each story rater
+ *
+ * @param  {Object} contexts
+ * @param  {Story} story
+ *
+ * @return {Number}
+ */
+function calculateStoryRating(contexts, story) {
+    var rating = _.reduce(storyRaters, (total, rater) => {
+        var rating = rater.calculateRating(contexts[rater.name], story);
+        return total + rating;
+    }, 0);
+    return rating;
 }
 
-function fetchStoryPopularity(db, schema, storyId) {
-    var criteria = {
-        type: 'story-popularity',
-        filters: {
-            story_id: storyId
-        }
-    };
-    return Statistics.findOne(db, schema, criteria, 'details').then((row) => {
-        if (row) {
-            var keys = [ schema, storyId ];
-            var cacheEntry = {
-                atime: new Date,
-                details: row.details
-            };
-            _.set(popularityCache, keys, cacheEntry);
-        }
-    });
-}
-
-function handleStatisticsChanges(events) {
-    _.each(events, (event) => {
-        if (event.op === 'UPDATE') {
-            if (event.diff.details) {
-                // update cache entry if it exists
-                var details = event.diff.details[1];
-                var keys = [ event.schema, event.id ];
-                var cacheEntry = _.get(popularityCache, keys);
-                if (cacheEntry) {
-                    cacheEntry.details = details;
-                }
-            }
-        } else if (event.op === 'INSERT') {
-            if (event.diff.type && event.diff.details) {
-                var type = event.diff.type[1];
-                var details = event.diff.details[1];
-                if (type === 'story-popularity') {
-                    // create a new entry on insert even though details would
-                    // likely be empty, because the stats type is sent in an
-                    // INSERT notification but not in an UPDATE notification
-                    var atime = new Date;
-                    var keys = [ event.schema, event.id ];
-                    var cacheEntry = { details, atime };
-                    _.set(popularityCache, keys, cacheEntry);
-                }
-            }
-        }
-    });
-}
-
+/**
+ * Fetch a list of project schemas
+ *
+ * @param  {Database} db
+ *
+ * @return {Promise<Array<String>>}
+ */
 function getProjectSchemas(db) {
     return Project.find(db, 'global', { deleted: false }, 'name').then((rows) => {
         var names = _.map(_.sortBy(rows, 'name'), 'name');
@@ -399,6 +459,14 @@ function getProjectSchemas(db) {
     });
 }
 
+/**
+ * Return the difference between two timestamps in milliseconds
+ *
+ * @param  {String|Date} start
+ * @param  {String|Date} end
+ *
+ * @return {Number}
+ */
 function getTimeElapsed(start, end) {
     if (!start) {
         return Infinity;

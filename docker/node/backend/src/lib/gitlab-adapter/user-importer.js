@@ -19,7 +19,6 @@ var User = require('accessors/user');
 
 exports.importEvent = importEvent;
 exports.importUsers = importUsers;
-exports.importProjectMembers = importProjectMembers;
 exports.findUser = findUser;
 exports.copyUserProperties = copyUserProperties;
 
@@ -43,7 +42,18 @@ function importEvent(db, server, repo, project, author, glEvent) {
     });
     var link = Import.Link.merge(userLink, repoLink);
     var storyNew = copyEventProperties(null, author, glEvent, link);
-    return Story.insertOne(db, schema, storyNew);
+    return Story.insertOne(db, schema, storyNew).then((story) => {
+        if (glEvent.action_name === 'joined') {
+            if (!_.includes(project.user_ids, author.id)) {
+                project.user_ids.push(author.id);
+            }
+        } else if (glEvent.action_name === 'left') {
+            _.pull(project.user_ids, author.id);
+        }
+        return Project.updateOne(db, 'global', _.pick(project, 'id', 'user_ids')).then((project) => {
+            return story;
+        });
+    });
 }
 
 /**
@@ -81,7 +91,10 @@ function copyEventProperties(story, author, glEvent, link) {
  * @return {Promise<Array<User>>}
  */
 function importUsers(db, server) {
-    var taskLog = TaskLog.start(server, 'gitlab-user-import');
+    var taskLog = TaskLog.start('gitlab-user-import', {
+        server_id: server.id,
+        server: server.name,
+    });
     // find existing users connected with server (including deleted ones)
     var criteria = {
         external_object: Import.Link.create(server),
@@ -202,12 +215,13 @@ function findExistingUser(db, server, users, glUser) {
  * @return {Promise<User|null>}
  */
 function findUser(db, server, glUser) {
-    var criteria = {
-        external_object: Import.Link.create(server, {
-            user: { id: glUser.id }
-        }),
-        deleted: false,
-    };
+    if (!glUser.id) {
+        return findUserByName(db, server, glUser);
+    }
+    var userLink = Import.Link.create(server, {
+        user: { id: glUser.id }
+    });
+    var criteria = { external_object: userLink };
     return User.findOne(db, 'global', criteria, '*').then((user) => {
         if (user) {
             return user;
@@ -220,6 +234,40 @@ function findUser(db, server, glUser) {
                 }
             });
         });
+    });
+}
+
+/**
+ * Look for a user when Gitlab doesn't give us only the username and not the id.
+ *
+ * @param  {Database} db
+ * @param  {Server} server
+ * @param  {Object} glUser
+ *
+ * @return {Promise<User|null>}
+ */
+function findUserByName(db, server, glUser) {
+    // first, try to find an user imported with that name
+    var serverLink = Import.Link.create(server);
+    var criteria = { external_object: serverLink };
+    return User.find(db, 'global', criteria, '*').then((users) => {
+        var user = _.find(users, (user) => {
+            var userLink = Import.Link.find(user, server);
+            var username = _.get(userLink, 'user.imported.username');
+            if (username === glUser.username) {
+                return true;
+            }
+        });
+        if (user) {
+            return user;
+        } else {
+            return fetchUserByName(server, glUser.username).then((glUser) => {
+                if (!glUser) {
+                    return null;
+                }
+                return findUser(db, server, glUser);
+            });
+        }
     });
 }
 
@@ -284,81 +332,34 @@ function copyUserProperties(user, image, server, glUser, link) {
 }
 
 /**
- * Import members of Gitlab project into Trambar project
- *
- * @param  {Database} db
- * @param  {Project} project
- *
- * @return {Promise<Array>}
- */
-function importProjectMembers(db, project) {
-    return importProjectRepoMembers(db, project).then((members) => {
-        var newMembers = _.filter(members, (member) => {
-            return !_.includes(project.user_ids, member.id);
-        });
-        if (_.isEmpty(newMembers)) {
-            return [];
-        }
-        var newMemberIds = _.map(newMembers, 'id');
-        return Project.addMembers(db, 'global', project.id, newMemberIds).then((project) => {
-            return newMembers;
-        });
-    });
-}
-
-/**
- * Import members of Gitlab repos connected to project
- *
- * @param  {Database} db
- * @param  {Project} project
- *
- * @return {Array<User>}
- */
-function importProjectRepoMembers(db, project) {
-    var criteria = {
-        id: project.repo_ids,
-        type: 'gitlab',
-        deleted: false,
-    };
-    return Repo.find(db, 'global', criteria, '*').map((repo) => {
-        var links = _.filter(repo.external, { type: 'gitlab' });
-        var criteria = {
-            id: _.map(links, 'server_id'),
-            deleted: false,
-        };
-        return Server.find(db, 'global', criteria, '*').each((server) => {
-            return fetchRepoMembers(server, link.project.id).then((glUsers) => {
-                return importUsers(db, server, glUsers);
-            });
-        });
-    }).then((memberLists) => {
-        return _.flatten(memberLists);
-    });
-}
-
-/**
- * Retrieve member records from Gitlab (these are not complete user records)
+ * Retrieve all user records from Gitlab
  *
  * @param  {Server} server
- * @param  {Number} glRepoId
  *
  * @return {Promise<Array<Object>>}
  */
-function fetchRepoMembers(server, glRepoId) {
-    var url = `/projects/${glRepoId}/members`;
+function fetchUsers(server) {
+    var url = `/users`;
     return Transport.fetchAll(server, url);
 }
 
 /**
- * Retrieve user record from Gitlab
+ * Retrieve user record from Gitlab by name
  *
  * @param  {Server} server
  *
  * @return {Promise<Object>}
  */
-function fetchUsers(server) {
+function fetchUserByName(server, username) {
     var url = `/users`;
-    return Transport.fetchAll(server, url);
+    var query = { username };
+    return Transport.fetch(server, url, query).then((users) => {
+        if (_.size(users) === 1) {
+            return users[0];
+        } else {
+            return null;
+        }
+    });
 }
 
 /**

@@ -20,9 +20,7 @@ module.exports = _.create(Data, {
         details: Object,
         completion: Number,
         failed: Boolean,
-        noop: Boolean,
         user_id: Number,
-        server_id: Number,
         etime: String,
     },
     criteria: {
@@ -32,10 +30,9 @@ module.exports = _.create(Data, {
         token: String,
         completion: Number,
         failed: Boolean,
-        noop: Boolean,
         deleted: Boolean,
         user_id: Number,
-        server_id: Number,
+        options: Object,
         etime: String,
 
         newer_than: String,
@@ -65,7 +62,6 @@ module.exports = _.create(Data, {
                 options jsonb NOT NULL DEFAULT '{}',
                 completion int NOT NULL DEFAULT 0,
                 failed boolean NOT NULL DEFAULT false,
-                noop boolean NOT NULL DEFAULT false,
                 user_id int,
                 server_id int,
                 etime timestamp,
@@ -85,7 +81,7 @@ module.exports = _.create(Data, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'action', 'user_id', 'server_id', 'noop', 'failed', 'deleted' ];
+            var propNames = [ 'action', 'user_id', 'server_id', 'failed', 'deleted' ];
             return this.createNotificationTriggers(db, schema, propNames);
         });
     },
@@ -100,6 +96,7 @@ module.exports = _.create(Data, {
      */
     apply: function(criteria, query) {
         var special = [
+            'options',
             'newer_than',
             'older_than',
         ];
@@ -107,6 +104,9 @@ module.exports = _.create(Data, {
 
         var params = query.parameters;
         var conds = query.conditions;
+        if (criteria.options !== undefined) {
+            conds.push(`options @> $${params.push(criteria.options)}`);
+        }
         if (criteria.newer_than !== undefined) {
             conds.push(`ctime > $${params.push(criteria.newer_than)}`);
         }
@@ -185,9 +185,6 @@ module.exports = _.create(Data, {
      */
     isRelevantTo: function(event, user, subscription) {
         if (Data.isRelevantTo(event, user, subscription)) {
-            if (event.current.noop) {
-                return false;
-            }
             if (event.current.user_id) {
                 if (event.current.user_id === user.id) {
                     return true;

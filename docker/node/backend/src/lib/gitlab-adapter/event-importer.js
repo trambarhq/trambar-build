@@ -11,11 +11,14 @@ var MilestoneImporter = require('gitlab-adapter/milestone-importer');
 var PushImporter = require('gitlab-adapter/push-importer');
 var RepoImporter = require('gitlab-adapter/repo-importer');
 var UserImporter = require('gitlab-adapter/user-importer');
+var WikiImporter = require('gitlab-adapter/wiki-importer');
+var NoteImporter = require('gitlab-adapter/note-importer');
 
 // accessors
 var Story = require('accessors/story');
 
 exports.importEvents = importEvents;
+exports.importHookEvent = importHookEvent;
 
 /**
  * Retrieve activity log entries from Gitlab server and turn them into stories
@@ -24,11 +27,16 @@ exports.importEvents = importEvents;
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {Project} project
+ * @param  {Object} glHookEvent
  *
  * @return {Promise}
  */
-function importEvents(db, server, repo, project) {
-    return TaskLog.last(server, 'gitlab-event-import').then((lastTask) => {
+function importEvents(db, server, repo, project, glHookEvent) {
+    var options = {
+        server_id: server.id,
+        repo_id: repo.id,
+    };
+    return TaskLog.last('gitlab-event-import', options).then((lastTask) => {
         var lastEventTime = _.get(lastTask, 'details.last_event_time');
         var repoLink = Import.Link.find(repo, server);
         var url = `/projects/${repoLink.project.id}/events`;
@@ -39,7 +47,10 @@ function importEvents(db, server, repo, project) {
             var dayBefore = Moment(lastEventTime).subtract(1, 'day');
             params.after = dayBefore.format('YYYY-MM-DD');
         }
-        var taskLog = TaskLog.start(server, 'gitlab-event-import', {
+        var taskLog = TaskLog.start('gitlab-event-import', {
+            server_id: server.id,
+            server: server.name,
+            repo_id: repo.id,
             repo: repo.name,
         });
         var added = [];
@@ -52,7 +63,7 @@ function importEvents(db, server, repo, project) {
                     return;
                 }
             }
-            return importEvent(db, server, repo, project, glEvent).then((story) => {
+            return importEvent(db, server, repo, project, glEvent, glHookEvent).then((story) => {
                 if (story) {
                     added.push(glEvent.action_name);
                 }
@@ -87,19 +98,46 @@ function importEvents(db, server, repo, project) {
  * @param  {Repo} repo
  * @param  {Project} project
  * @param  {Object} glEvent
+ * @param  {Object} glHookEvent
  *
- * @return {Promise}
+ * @return {Promise<Story|null>}
  */
-function importEvent(db, server, repo, project, glEvent) {
+function importEvent(db, server, repo, project, glEvent, glHookEvent) {
+    var importer = getEventImporter(glEvent);
+    if (!importer) {
+        return Promise.resolve(null);
+    }
     return UserImporter.findUser(db, server, glEvent.author).then((author) => {
         if (!author) {
-            return;
-        }
-        var importer = getImporter(glEvent);
-        if (!importer) {
             return null;
         }
-        return importer.importEvent(db, server, repo, project, author, glEvent);
+        return importer.importEvent(db, server, repo, project, author, glEvent, glHookEvent);
+    });
+}
+
+/**
+ * Import a hook event, updating a story usually--a story is created here only
+ * if the event wouldn't have an entry in the activity log
+ *
+ * @param  {Database} db
+ * @param  {Server} server
+ * @param  {Repo} repo
+ * @param  {Project} project
+ * @param  {Object} glHookEvent
+ *
+ * @return {Promise<Story|false|null>}
+ */
+function importHookEvent(db, server, repo, project, glHookEvent) {
+    var importer = getHookEventImporter(glHookEvent);
+    if (!importer) {
+        // not handled
+        return Promise.resolve(false);
+    }
+    return UserImporter.findUser(db, server, glHookEvent.user).then((author) => {
+        if (!author) {
+            return null;
+        }
+        return importer.importHookEvent(db, server, repo, project, author, glHookEvent);
     });
 }
 
@@ -110,23 +148,50 @@ function importEvent(db, server, repo, project, glEvent) {
  *
  * @return {Object}
  */
-function getImporter(glEvent) {
-    switch (glEvent.target_type) {
-        case 'Issue': return IssueImporter;
-        case 'Milestone': return MilestoneImporter;
-        case 'MergeRequest': return MergeRequestImporter;
+function getEventImporter(glEvent) {
+    var targetType = normalizeToken(glEvent.target_type);
+    switch (targetType) {
+        case 'issue': return IssueImporter;
+        case 'milestone': return MilestoneImporter;
+        case 'merge_request':
+        case 'mergerequest': return MergeRequestImporter;
+        case 'note': return NoteImporter;
     }
 
-    switch (glEvent.action_name) {
+    var actionName = normalizeToken(glEvent.action_name);
+    switch (actionName) {
         case 'deleted':
         case 'created':
         case 'imported': return RepoImporter;
         case 'joined':
         case 'left': return UserImporter;
-        case 'pushed new':
         case 'pushed_new':
-        case 'pushed new':
-        case 'pushed_to':
-        case 'pushed to': return PushImporter;
+        case 'pushed_to': return PushImporter;
     }
+    console.warn(`Unknown event: target_type = ${targetType}, action_name = ${actionName}`);
+    console.log(glEvent);
+    console.log('*****************************************')
+}
+
+/**
+ * Return an importer capable of importing the hook event
+ *
+ * @param  {Object} glEvent
+ *
+ * @return {Object}
+ */
+function getHookEventImporter(glHookEvent) {
+    var objectKind = normalizeToken(glHookEvent.object_kind);
+    switch (objectKind) {
+        case 'wiki_page': return WikiImporter;
+        case 'issue': return IssueImporter;
+        case 'mergerequest':
+        case 'merge_request': return MergeRequestImporter;
+    }
+}
+
+function normalizeToken(s) {
+    s = _.toLower(s);
+    s = _.replace(s, /[\s\-]/g, '_');
+    return s;
 }

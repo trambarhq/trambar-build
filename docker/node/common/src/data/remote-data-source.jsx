@@ -172,7 +172,8 @@ module.exports = React.createClass({
             session.authentication = null;
             session.authorizationPromise = null;
             session.authorization = null;
-            this.cleanCachedObjects(location);
+            this.clearRecentSearches(address);
+            this.clearCachedObjects(address);
             this.triggerExpirationEvent(address);
             return true;
         });
@@ -388,13 +389,14 @@ module.exports = React.createClass({
         var byComponent = _.get(location, 'by.constructor.displayName',)
         location = getSearchLocation(location);
         if (location.schema === 'local') {
-            return this.storeLocalObjects(location, objects);
+            return this.storeLocalObjects(location, objects).then((objects) => {
+                this.updateRecentSearchResults(location, objects);
+                this.triggerChangeEvent();
+                return objects;
+            });
         } else {
             return this.storeRemoteObjects(location, objects).then((objects) => {
                 var endTime = getCurrentTime();
-                _.each(objects, (object) => {
-                    object.startTime = startTime;
-                });
                 this.updateCachedObjects(location, objects);
                 this.updateRecentSearchResults(location, objects);
                 this.triggerChangeEvent();
@@ -429,7 +431,10 @@ module.exports = React.createClass({
         var byComponent = _.get(location, 'by.constructor.displayName',)
         location = getSearchLocation(location);
         if (location.schema === 'local') {
-            return this.removeLocalObjects(location, objects);
+            return this.removeLocalObjects(location, objects).then((objects) => {
+                this.removeFromRecentSearchResults(location, objects);
+                this.triggerChangeEvent();
+            });
         } else {
             if (process.env.NODE_ENV !== 'production') {
                 if (_.get(this.props.discoveryFlags, 'include_deleted')) {
@@ -514,6 +519,22 @@ module.exports = React.createClass({
             this.triggerChangeEvent();
         }
         return changed;
+    },
+
+    /**
+     * Remove recent searches on schema
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     */
+    clear: function(address, schema) {
+        var recentSearchResults = _.filter(this.state.recentSearchResults, (search) => {
+            if (_.isMatch(search, { address, schema })) {
+                return false;
+            }
+            return true;
+        });
+        this.setState({ recentSearchResults });
     },
 
     /**
@@ -765,11 +786,13 @@ module.exports = React.createClass({
         }).catch((err) => {
             if (err.statusCode === 401) {
                 clearSession(address);
-                this.cleanCachedObjects(location);
+                this.clearRecentSearches(address);
+                this.clearCachedObjects(address);
                 this.triggerExpirationEvent(address);
                 this.triggerChangeEvent();
             } else if (err.statusCode == 403) {
-                this.cleanCachedObjects(location);
+                this.clearRecentSearches(address);
+                this.clearCachedObjects(address);
                 this.triggerViolationEvent(address, schema);
                 this.triggerChangeEvent();
             }
@@ -876,16 +899,16 @@ module.exports = React.createClass({
     /**
      * Deleted all cached objects originating from given server
      *
-     * @param  {Object} location
+     * @param  {String} address
      *
      * @return {Promise<Number>}
      */
-    cleanCachedObjects: function(location) {
+    clearCachedObjects: function(address) {
         var cache = this.props.cache;
         if (!cache) {
             return Promise.resolve(0);
         }
-        return cache.clean({ address: location.address });
+        return cache.clean({ address });
     },
 
     /**
@@ -897,14 +920,25 @@ module.exports = React.createClass({
      */
     updateRecentSearchResults: function(location, objects) {
         var relevantSearches = this.getRelevantRecentSearches(location);
+        var remote = (location.schema !== 'local');
         _.each(relevantSearches, (search) => {
             var changed = false;
             _.each(objects, (object) => {
-                var index = _.sortedIndexBy(search.results, object, 'id');
+                var index;
+                if (remote) {
+                    // remote objects are sorted by id
+                    index = _.sortedIndexBy(search.results, object, 'id');
+                } else {
+                    // local objects have string key and not id
+                    index = _.findIndex(search.results, { key: object.key });
+                    if (index === -1) {
+                        index = search.results.length;
+                    }
+                }
                 var target = search.results[index];
                 var present = (target && target.id === object.id);
                 var match = LocalSearch.match(search.table, object, search.criteria);
-                if (target || match) {
+                if (match) {
                     // create new array so memoized functions won't return old results
                     if (!changed) {
                         search.results = _.slice(search.results);
@@ -935,10 +969,16 @@ module.exports = React.createClass({
      */
     removeFromRecentSearchResults: function(location, objects) {
         var relevantSearches = this.getRelevantRecentSearches(location);
+        var remote = (location.schema !== 'local');
         _.each(relevantSearches, (search) => {
             var changed = false;
             _.each(objects, (object) => {
-                var index = _.sortedIndexBy(search.results, object, 'id');
+                var index;
+                if (remote) {
+                    index = _.sortedIndexBy(search.results, object, 'id');
+                } else {
+                    index = _.findIndex(search.results, { key: object.key });
+                }
                 var target = search.results[index];
                 var present = (target && target.id === object.id);
                 if (present) {
@@ -969,6 +1009,21 @@ module.exports = React.createClass({
                 return true;
             }
         });
+    },
+
+    /**
+     * Remove recent search performed on given server
+     *
+     * @param  {String} address
+     */
+    clearRecentSearches: function(address) {
+        var recentSearchResults = _.filter(this.state.recentSearchResults, (search) => {
+            if (search.address === address) {
+                return false;
+            }
+            return true;
+        });
+        this.setState({ recentSearchResults });
     },
 
     /**
@@ -1159,7 +1214,11 @@ function getTimeElapsed(start, end) {
  * @return {Object}
  */
 function getSearchLocation(search) {
-    return _.pick(search, 'address', 'schema', 'table');
+    if (search.schema === 'local') {
+        return _.pick(search, 'schema', 'table');
+    } else {
+        return _.pick(search, 'address', 'schema', 'table');
+    }
 }
 
 /**

@@ -2,6 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Data = require('accessors/data');
 var HttpError = require('errors/http-error');
+var ProjectSettings = require('objects/settings/project-settings');
 
 module.exports = _.create(Data, {
     schema: 'global',
@@ -123,9 +124,11 @@ module.exports = _.create(Data, {
      * @return {Promise<Array<Object>>}
      */
     filter: function(db, schema, rows, credentials) {
-        rows = _.filter(rows, (row) => {
-            return this.checkAccess(row, credentials.user, 'know');
-        });
+        if (!credentials.unrestricted) {
+            rows = _.filter(rows, (row) => {
+                return ProjectSettings.isVisibleToUser(row, credentials.user);
+            });
+        }
         return Promise.resolve(rows);
     },
 
@@ -177,26 +180,38 @@ module.exports = _.create(Data, {
         return Data.import.call(this, db, schema, objects, originals, credentials).mapSeries((projectReceived, index) => {
             var projectBefore = originals[index];
             if (projectReceived.name === 'global' || projectReceived.name === 'admin') {
-                throw new HttpError(409);
+                throw new HttpError(409); // 409 conflict
+            }
+            if (!/^[\w\-]+$/.test(projectReceived.name)) {
+                return new HttpError(400);
             }
             this.checkWritePermission(projectReceived, projectBefore, credentials);
+
+            if (projectReceived.repo_ids) {
+                var newRepoIds = _.difference(projectReceived.repo_ids, projectBefore.repo_ids);
+                if (!_.isEmpty(newRepoIds)) {
+                    // add users with access to repos to project
+                    var Repo = require('accessors/repo');
+                    var User = require('accessors/user');
+                    var criteria = { id: newRepoIds, deleted: false };
+                    return Repo.find(db, schema, criteria, 'user_ids').then((repos) => {
+                        var userIds = _.uniq(_.flatten(_.map(repos, 'user_ids')));
+                        var criteria = {
+                            id: userIds,
+                            disabled: false,
+                            deleted: false,
+                        };
+                        return User.find(db, schema, criteria, 'id').then((users) => {
+                            var newUserIds = _.map(users, 'id');
+                            var existingUserIds = projectReceived.user_ids || projectBefore.user_ids;
+                            projectReceived.user_ids = _.union(existingUserIds, newUserIds);
+                            return projectReceived;
+                        });
+                    });
+                }
+            }
             return projectReceived;
         });
-    },
-
-    /**
-     * Throw if current user cannot make modifications
-     *
-     * @param  {[type]} projectReceived
-     * @param  {[type]} projectBefore
-     * @param  {[type]} credentials
-     *
-     * @return {[type]}
-     */
-    checkWritePermission: function(projectReceived, projectBefore, credentials) {
-        if (!credentials.unrestricted) {
-            throw new HttpError(400);
-        }
     },
 
     /**
@@ -297,50 +312,4 @@ module.exports = _.create(Data, {
         `;
         return db.execute(sql, params);
     },
-
-    /**
-     * Return false if the user has no access to project
-     *
-     * Need these columns: deleted, user_ids, settings
-     *
-     * @param  {Project} project
-     * @param  {User} user
-     * @param  {String} access
-     *
-     * @return {Boolean}
-     */
-    checkAccess: function(project, user, access) {
-        if (!project) {
-            return false;
-        }
-        // project member and admins have full access
-        if (_.includes(project.user_ids, user.id)) {
-            return true;
-        }
-        if (user.type === 'admin') {
-            return true;
-        }
-
-        // see if read-only access should be granted
-        if (access === 'know') {
-            // see if user can know about the project's existence
-            if (_.get(project, 'settings.access_control.grant_view_access')) {
-                return true;
-            }
-            if (user.type === 'guest') {
-                if (_.get(project, 'settings.membership.allow_guest_request')) {
-                    return true;
-                }
-            } else {
-                if (!_.get(project, 'settings.membership.allow_user_request')) {
-                    return true;
-                }
-            }
-        } else if (access == 'read') {
-            if (_.get(project, 'settings.access_control.grant_view_access')) {
-                return true;
-            }
-        }
-        return false;
-    }
 });

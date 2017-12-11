@@ -87,6 +87,7 @@ module.exports = _.create(ExternalData, {
                 PRIMARY KEY (id)
             );
             CREATE INDEX ON ${table} USING gin(("payloadIds"(details))) WHERE "payloadIds"(details) IS NOT NULL;
+            CREATE INDEX ON ${table} ((COALESCE(ptime, btime))) WHERE published = true AND ready = true;
         `;
         //
         return db.execute(sql);
@@ -102,7 +103,7 @@ module.exports = _.create(ExternalData, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted', 'type', 'tags', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'external' ];
+            var propNames = [ 'deleted', 'type', 'tags', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'ptime', 'external' ];
             return this.createNotificationTriggers(db, schema, propNames).then(() => {
                 return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'published' ]).then(() => {
                     var Task = require('accessors/task');
@@ -146,7 +147,7 @@ module.exports = _.create(ExternalData, {
         }
         if (criteria.bumped_after !== undefined) {
             var time = `$${params.push(criteria.bumped_after)}`
-            conds.push(`(ptime > ${time} || btime > ${time})`);
+            conds.push(`COALESCE(ptime, btime) > ${time}`);
         }
         if (criteria.url !== undefined) {
             conds.push(`details->>'url' = $${params.push(criteria.url)}`);
@@ -286,6 +287,10 @@ module.exports = _.create(ExternalData, {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
+        if (subscription.area === 'admin') {
+            // admin console doesn't use this object currently
+            return false;
+        }
         if (ExternalData.isRelevantTo(event, user, subscription)) {
             if (event.current.published && event.current.ready) {
                 return true;
@@ -305,6 +310,9 @@ module.exports = _.create(ExternalData, {
      * @param  {Object} credentials
      */
     checkWritePermission: function(storyReceived, storyBefore, credentials) {
+        if (credentials.access !== 'read-write') {
+            throw new HttpError(400);
+        }
         if (storyBefore) {
             if (!_.includes(storyBefore.user_ids, credentials.user.id)) {
                 // can't modify an object that doesn't belong to the user

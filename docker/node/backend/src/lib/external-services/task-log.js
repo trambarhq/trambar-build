@@ -12,30 +12,28 @@ exports.last = last;
 /**
  * Start a task log
  *
- * @param  {Server} server
  * @param  {String} action
  * @param  {Object|undefined} options
  *
  * @return {TaskLog}
  */
-function start(server, action, options) {
-    return new TaskLog(server, action, options);
+function start(action, options) {
+    return new TaskLog(action, options);
 }
 
 /**
  * Return the last task
  *
- * @param  {Server} server
  * @param  {String} action
+ * @param  {Object|undefined} options
  *
  * @return {Promise<Task|null>}
  */
-function last(server, action) {
+function last(action, options) {
     return Database.open().then((db) => {
         var criteria = {
             action,
-            noop: false,
-            server_id: _.get(server, 'id'),
+            options,
             order: 'id DESC',
             limit: 1,
         };
@@ -44,14 +42,12 @@ function last(server, action) {
 }
 
 /**
- * @param  {Server} server
  * @param  {String} action
  * @param  {Object|undefined} options
  *
  * @constructor
  */
-function TaskLog(server, action, options) {
-    this.server = server;
+function TaskLog(action, options) {
     this.action = action;
     this.options = options;
 
@@ -133,13 +129,15 @@ TaskLog.prototype.abort = function(err) {
 /**
  * Preserved any unsaved progress info
  *
- * @return {Promise}
+ * @return {Promise<Task|null>}
  */
 TaskLog.prototype.save = function() {
     this.savePromise = Database.open().then((db) => {
+        if (this.noop && !this.failed) {
+            return null;
+        }
         var columns = {};
         if (!this.id) {
-            columns.server_id = _.get(this.server, 'id');
             columns.action = this.action;
             columns.options = this.options;
         } else {
@@ -147,34 +145,26 @@ TaskLog.prototype.save = function() {
         }
         columns.completion = this.completion;
         columns.details  = this.details;
-        if (this.completion === 100 || this.failed) {
-            columns.failed = this.failed;
-            if (!this.failed) {
-                columns.noop = this.noop;
-            }
+        columns.failed = this.failed;
+        if (this.completion === 100) {
             columns.etime = String('NOW()');
         }
         return Task.saveOne(db, 'global', columns).then((task) => {
-            if (!this.id) {
-                this.id = task.id;
-            }
+            this.id = task.id;
             this.saved = true;
-
-            var state = ''
-            if (task.completion < 100) {
-                if (this.failed) {
-                    state = 'aborted';
-                } else {
-                    state = `${task.completion}%`;
-                }
-            } else {
-                state = 'finished';
-                if (this.noop) {
-                    state += ' (noop)';
-                }
-            }
-            console.log(`[${task.id}] ${task.action}: ${state}`);
         });
+    }).tap(() => {
+        var state = ''
+        if (this.completion < 100) {
+            if (this.failed) {
+                state = 'aborted';
+            } else {
+                state = `${this.completion}%`;
+            }
+        } else {
+            state = 'finished';
+        }
+        console.log(`[${this.id || 'NOP'}] ${this.action}: ${state}`);
     });
     return this.savePromise;
 };
