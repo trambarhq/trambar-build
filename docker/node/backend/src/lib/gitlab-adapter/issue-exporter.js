@@ -1,9 +1,11 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
+var LinkUtils = require('objects/utils/link-utils');
 
 var Export = require('external-services/export');
 var Import = require('external-services/import');
+var TaskLog = require('external-services/task-log');
 var Transport = require('gitlab-adapter/transport');
 var UserExporter = require('gitlab-adapter/user-exporter');
 
@@ -12,7 +14,9 @@ var Story = require('accessors/story');
 var Server = require('accessors/server');
 var User = require('accessors/user');
 
-exports.exportStory = exportStory;
+module.exports = {
+    exportStory,
+};
 
 /**
  * Export a story to issue tracker
@@ -24,22 +28,25 @@ exports.exportStory = exportStory;
  * @return {Promise<Story|null>}
  */
 function exportStory(db, project, story) {
-    var link = Import.Link.find(story, { type: 'gitlab' });
-    var criteria = { id: link.server_id, deleted: false };
+    var issueLink = LinkUtils.find(story, { type: 'gitlab', relation: 'issue' });
+    var criteria = { id: issueLink.server_id, deleted: false };
     return Server.findOne(db, 'global', criteria, '*').then((server) => {
         var criteria = { id: story.user_ids[0], deleted: false };
         return User.findOne(db, 'global', criteria, '*').then((author) => {
             if (!server || !author) {
                 return null;
             }
-            var authorLink = Import.Link.find(author, server);
-            var glIssue = copyIssueProperties(story, project, link);
-            var glIssueNumber = story.details.number;
-            return saveIssue(server, link.project.id, glIssueNumber, glIssue, authorLink.user.id).then((glIssue) => {
+            var authorLink = LinkUtils.find(author, { server });
+            var glIssue = copyIssueProperties(story, project, issueLink);
+            var glIssueNumber = issueLink.issue.number;
+            return saveIssue(server, issueLink.project.id, glIssueNumber, glIssue, authorLink.user.id).then((glIssue) => {
                 var storyAfter = _.cloneDeep(story);
-                var linkAfter = Import.Link.find(storyAfter, { type: 'gitlab' });
-                _.set(linkAfter, 'issue.id', glIssue.id);
-                _.set(storyAfter, 'details.number', glIssue.iid);
+                var issueLinkAfter = LinkUtils.find(storyAfter, { type: 'gitlab', relation: 'issue' });
+                _.set(issueLinkAfter, 'issue.id', glIssue.id);
+                _.set(issueLinkAfter, 'issue.number', glIssue.iid);
+                if (_.isEqual(story, storyAfter)) {
+                    return story;
+                }
                 return Story.updateOne(db, project.name, storyAfter);
             });
         });
@@ -66,9 +73,7 @@ function copyIssueProperties(story, project, link) {
     _.set(glIssue, 'title', title || 'Untitled');
     _.set(glIssue, 'description', contents);
     _.set(glIssue, 'confidential', !story.public);
-    _.set(glIssue, 'assignee_ids', []);
-    _.set(glIssue, 'labels', story.details.labels);
-    _.set(glIssue, 'weight', story.details.weight);
+    _.set(glIssue, 'labels', _.join(story.details.labels, ','));
     return glIssue;
 }
 
@@ -87,6 +92,8 @@ function saveIssue(server, glProjectId, glIssueNumber, glIssue, glUserId) {
     var url = `/projects/${glProjectId}/issues`;
     if (glIssueNumber) {
         url += `/${glIssueNumber}`;
+        return Transport.put(server, url, glIssue, glUserId);
+    } else {
+        return Transport.post(server, url, glIssue, glUserId);
     }
-    return Transport.post(server, url, glIssue, glUserId);
 }

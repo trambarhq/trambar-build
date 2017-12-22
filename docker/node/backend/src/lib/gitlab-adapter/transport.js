@@ -8,11 +8,14 @@ var HttpError = require('errors/http-error');
 var Database = require('database');
 var Server = require('accessors/server');
 
-exports.fetch = fetch;
-exports.fetchAll = fetchAll;
-exports.fetchEach = fetchEach;
-exports.post = post;
-exports.remove = remove;
+module.exports = {
+    fetch,
+    fetchAll,
+    fetchEach,
+    post,
+    put,
+    remove,
+};
 
 var PAGE_SIZE = 50;
 var PAGE_LIMIT = 1000;
@@ -128,6 +131,27 @@ function post(server, uri, payload, userId) {
 }
 
 /**
+ * Perform an action at Gitlab server using a PUT request, possibly as a
+ * specific user
+ *
+ * @param  {Server} server
+ * @param  {String} uri
+ * @param  {Object} payload
+ * @param  {Number|undefined} userId
+ *
+ * @return {Promise<Object>}
+ */
+function put(server, uri, payload, userId) {
+    if (userId) {
+        return impersonate(server, userId).then((token) => {
+            return request(server, uri, 'put', undefined, payload, token);
+        });
+    } else {
+        return request(server, uri, 'put', undefined, payload);
+    }
+}
+
+/**
  * Remove something at Gitlab server using a DELETE request
  *
  * @param  {Server} server
@@ -157,7 +181,6 @@ function impersonate(server, userId) {
     return getImpersonations(server, userId).then((impersonations) => {
         var matching = _.find(impersonations, { name: 'trambar', active: true });
         if (matching) {
-            console.log(userId + ' =>', matching);
             userImpersonations[userId] = matching;
             return matching.token;
         }
@@ -269,25 +292,23 @@ function updateAccessTokens(server, response) {
  */
 function request(server, uri, method, query, payload, userToken) {
     var baseUrl = _.trimEnd(server.settings.oauth.base_url, '/') + '/api/v4';
-    var token;
+    var oauthToken = server.settings.api.access_token;
+    var headers;
     if (userToken) {
-        token = userToken;
+        headers = { 'Private-Token': userToken };
+    } else if (oauthToken) {
+        headers = { Authorization: `Bearer ${oauthToken}` };
     } else {
-        token = server.settings.api.access_token;
-    }
-    if (!token) {
         return Promise.reject(new HttpError(401));
     }
     var options = {
         json: true,
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
         qs: query,
         body: payload,
         baseUrl,
         uri,
         method,
+        headers,
     };
     var succeeded = false;
     var attempts = 0;

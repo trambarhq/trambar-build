@@ -2,6 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 var Crypto = require('crypto');
+var LinkUtils = require('objects/utils/link-utils');
 
 var Import = require('external-services/import');
 var TaskLog = require('external-services/task-log');
@@ -12,7 +13,9 @@ var Commit = require('accessors/commit');
 var Story = require('accessors/story');
 var Reaction = require('accessors/reaction');
 
-exports.importEvent = importEvent;
+module.exports = {
+    importEvent,
+};
 
 /**
  * @param  {Database} db
@@ -53,21 +56,20 @@ function importEvent(db, server, repo, project, author, glEvent, glHookEvent) {
  */
 function importIssueNote(db, server, repo, project, author, glEvent) {
     var schema = project.name;
-    var repoLink = Import.Link.find(repo, server);
-    var issueLink = Import.Link.create(server, {
+    var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
+    var issueLink = LinkUtils.extend(repoLink, {
         issue: { id: glEvent.note.noteable_id }
-    }, repoLink);
+    });
     var criteria = {
-        type: 'issue',
         external_object: issueLink
     };
     return Story.findOne(db, schema, criteria, '*').then((story) => {
         if (!story) {
             return null;
         }
-        var noteLink = Import.Link.create(server, {
+        var noteLink = LinkUtils.extend(issueLink, {
             note: { id: glEvent.note.id },
-        }, issueLink);
+        });
         var reactioNew = copyEventProperties(null, story, author, glEvent, noteLink);
         return Reaction.insertOne(db, schema, reactioNew).return(story);
     });
@@ -87,21 +89,20 @@ function importIssueNote(db, server, repo, project, author, glEvent) {
  */
 function importMergeRequestNote(db, server, repo, project, author, glEvent) {
     var schema = project.name;
-    var repoLink = Import.Link.find(repo, server);
-    var mergeRequestLink = Import.Link.create(server, {
+    var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
+    var mergeRequestLink = LinkUtils.extend(repoLink, {
         merge_request: { id: glEvent.note.noteable_id }
-    }, repoLink);
+    });
     var criteria = {
-        type: 'merge-request',
         external_object: mergeRequestLink
     };
     return Story.findOne(db, schema, criteria, '*').then((story) => {
         if (!story) {
             return null;
         }
-        var noteLink = Import.Link.create(server, {
+        var noteLink = LinkUtils.extend(mergeRequestLink, {
             note: { id: glEvent.note.id },
-        }, mergeRequestLink);
+        });
         var reactioNew = copyEventProperties(null, story, author, glEvent, noteLink);
         return Reaction.insertOne(db, schema, reactioNew).return(story);
     });
@@ -127,21 +128,20 @@ function importCommitNote(db, server, repo, project, author, glEvent, glHookEven
             return null;
         }
         var schema = project.name;
-        var repoLink = Import.Link.find(repo, server);
-        var commitLink = Import.Link.create(server, {
+        var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
+        var commitLink = LinkUtils.extend(repoLink, {
             commit: { id: commitId }
-        }, repoLink);
+        });
         var criteria = {
-            type: 'push',
             external_object: commitLink
         };
         return Story.findOne(db, schema, criteria, '*').then((story) => {
             if (!story) {
                 return null;
             }
-            var noteLink = Import.Link.create(server, {
+            var noteLink = LinkUtils.extend(commitLink, {
                 note: { id: glEvent.note.id },
-            }, commitLink);
+            });
             var reactioNew = copyEventProperties(null, story, author, glEvent, noteLink);
             return Reaction.insertOne(db, schema, reactioNew).return(story);
         });
@@ -170,7 +170,7 @@ function findCommitId(db, server, repo, glEvent, glHookEvent) {
     }
 
     var titleHash = hash(glEvent.target_title);
-    var repoLink = Import.Link.find(repo, server);
+    var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
     var criteria = {
         title_hash: hash(glEvent.target_title),
         external_object: repoLink,
@@ -180,9 +180,9 @@ function findCommitId(db, server, repo, glEvent, glHookEvent) {
             if (match) {
                 return match;
             }
-            var link = Import.Link.find(commit, server);
-            var commitId = link.commit.id;
-            var projectId = link.project.id;
+            var commitLink = LinkUtils.find(commit, { server, relation: 'commit' });
+            var commitId = commitLink.commit.id;
+            var projectId = commitLink.project.id;
             return fetchCommitNotes(server, projectId, commitId).then((glNotes) => {
                 var found = _.some(glNotes, (glNote) => {
                     if (glNote.note === glEvent.note.body) {

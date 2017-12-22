@@ -25,6 +25,11 @@ var Story = require('accessors/story');
 var System = require('accessors/system');
 var User = require('accessors/user');
 
+module.exports = {
+    start,
+    stop,
+};
+
 var server;
 var database;
 
@@ -282,14 +287,26 @@ function disconnectRepositories(db, project, repoIds) {
 function handleStoryChangeEvent(db, event) {
     var exporting = false;
     if (_.includes(StoryTypes.trackable, event.current.type)) {
-        var storyLink = Import.Link.find(event.current);
-        var issueLink = Import.Link.pick(storyLink, 'issue');
         if (event.current.published && event.current.ready) {
+            var issueLink = _.find(event.current.external, (link) => {
+                return !!link.issue;
+            });
             if (issueLink) {
                 if (!issueLink.id) {
+                    // there's no issue id yet
                     exporting = true;
                 } else {
-                    if (event.diff.details) {
+                    var issueLinkBefore;
+                    if (event.previous.external) {
+                        issueLinkBefore = _.find(event.current.external, (link) => {
+                            return !!link.issue;
+                        });
+                    }
+                    if (issueLinkBefore && !issueLinkBefore.issue.id) {
+                        // this is just the event emitted immediately after
+                        // the issue was successfully exported and we
+                    } else if (event.diff.details) {
+                        // the issue might need to be updated
                         exporting = true;
                     }
                 }
@@ -299,6 +316,7 @@ function handleStoryChangeEvent(db, event) {
     if (exporting) {
         return Story.findOne(db, event.schema, { id: event.id }, '*').then((story) => {
             return Project.findOne(db, 'global', { name: event.schema }, '*').then((project) => {
+                console.log(`Exporting story ${story.id}`);
                 return IssueExporter.exportStory(db, project, story);
             });
         });
@@ -444,9 +462,6 @@ function getServerAddress(db) {
         return _.trimEnd(address, ' /');
     });
 }
-
-exports.start = start;
-exports.stop = stop;
 
 if (process.argv[1] === __filename) {
     start();

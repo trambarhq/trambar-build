@@ -52,6 +52,9 @@ module.exports = _.create(ExternalData, {
         url: String,
         search: Object,
     },
+    accessControlColumns: {
+        public: Boolean,
+    },
 
     /**
      * Create table in schema
@@ -111,6 +114,23 @@ module.exports = _.create(ExternalData, {
                 });
             });
         });
+    },
+
+    /**
+     * Filter out rows that user doesn't have access to
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<Object>} rows
+     * @param  {Object} credentials
+     *
+     * @return {Promise<Array<Object>>}
+     */
+    filter: function(db, schema, rows, credentials) {
+        if (credentials.user.type === 'guest') {
+            rows = _.filter(rows, { public: true });
+        }
+        return Promise.resolve(rows);
     },
 
     /**
@@ -316,8 +336,8 @@ module.exports = _.create(ExternalData, {
         if (storyBefore) {
             if (!_.includes(storyBefore.user_ids, credentials.user.id)) {
                 // can't modify an object that doesn't belong to the user
-                // unless user is an admin
-                if (credentials.user.type !== 'admin') {
+                // unless user is an admin or a moderator
+                if (credentials.user.type !== 'admin' && credentials.user.type !== 'moderator') {
                     throw new HttpError(400);
                 }
             }

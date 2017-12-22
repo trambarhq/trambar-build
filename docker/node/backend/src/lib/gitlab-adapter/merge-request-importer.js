@@ -2,6 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 var TagScanner = require('utils/tag-scanner');
+var LinkUtils = require('objects/utils/link-utils');
 
 var Import = require('external-services/import');
 var Transport = require('gitlab-adapter/transport');
@@ -11,8 +12,10 @@ var UserImporter = require('gitlab-adapter/user-importer');
 var Reaction = require('accessors/reaction');
 var Story = require('accessors/story');
 
-exports.importEvent = importEvent;
-exports.importHookEvent = importHookEvent;
+module.exports = {
+    importEvent,
+    importHookEvent,
+};
 
 /**
  * Import an activity log entry about an merge request
@@ -28,15 +31,14 @@ exports.importHookEvent = importHookEvent;
  */
 function importEvent(db, server, repo, project, author, glEvent) {
     var schema = project.name;
-    var repoLink = Import.Link.find(repo, server);
+    var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
     return fetchMergeRequest(server, repoLink.project.id, glEvent.target_id).then((glMergeRequest) => {
         // the story is linked to both the merge request and the repo
-        var mergeRequestLink = Import.Link.create(server, {
+        var mergeRequestLink = LinkUtils.extend(repoLink, {
             merge_request: { id: glMergeRequest.id }
-        }, repoLink);
+        });
         // find existing merge request
         var criteria = {
-            type: 'merge-request',
             external_object: mergeRequestLink,
         };
         return Story.findOne(db, schema, criteria, '*').then((story) => {
@@ -73,12 +75,11 @@ function importHookEvent(db, server, repo, project, author, glHookEvent) {
 
         // find existing story
         var schema = project.name;
-        var repoLink = Import.Link.find(repo, server);
-        var mergeRequestLink = Import.Link.create(server, {
+        var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
+        var mergeRequestLink = LinkUtils.extend(repoLink, {
             merge_request: { id: glMergeRequest.id }
-        }, repoLink);
+        });
         var criteria = {
-            type: 'merge-request',
             external_object: mergeRequestLink,
         };
         return Story.findOne(db, schema, criteria, '*').then((story) => {
@@ -116,10 +117,10 @@ function importHookEvent(db, server, repo, project, author, glHookEvent) {
  */
 function importAssignment(db, server, project, repo, story, glMergeRequest) {
     var schema = project.name;
-    var repoLink = Import.Link.find(repo, server);
-    var mergeRequestLink = Import.Link.create(server, {
+    var repoLink = LinkUtils.find(repo, { server, relation: 'project' });
+    var mergeRequestLink = LinkUtils.extend(repoLink, {
         merge_request: { id: glMergeRequest.id }
-    }, repoLink);
+    });
     // find existing assignments
     var criteria = {
         story_id: story.id,
@@ -154,22 +155,23 @@ function importAssignment(db, server, project, repo, story, glMergeRequest) {
  */
 function copyMergeRequestProperties(story, author, glMergeRequest, link) {
     var storyAfter = _.cloneDeep(story) || {};
-    var imported = Import.reacquire(storyAfter, link, 'merge_request');
+    var mergeRequestLink = Import.join(storyAfter, link);
+    var descriptionTags = TagScanner.findTags(glMergeRequest.description);
+    var labelTags = _.map(glMergeRequest.labels, (label) => { return `#${label}`; });
+    mergeRequestLink.merge_request.number = glMergeRequest.iid;
     _.set(storyAfter, 'type', 'merge-request');
     _.set(storyAfter, 'user_ids', [ author.id ]);
     _.set(storyAfter, 'role_ids', author.role_ids);
     _.set(storyAfter, 'published', true);
     _.set(storyAfter, 'ptime', Moment(new Date(glMergeRequest.created_at)).toISOString());
-    Import.set(storyAfter, imported, 'public', !glMergeRequest.confidential);
-    Import.set(storyAfter, imported, 'tags', TagScanner.findTags(glMergeRequest.description));
-    Import.set(storyAfter, imported, 'details.state', glMergeRequest.state);
-    Import.set(storyAfter, imported, 'details.branch', glMergeRequest.target_branch);
-    Import.set(storyAfter, imported, 'details.source_branch', glMergeRequest.source_branch);
-    Import.set(storyAfter, imported, 'details.labels', glMergeRequest.labels);
-    Import.set(storyAfter, imported, 'details.milestone', _.get(glMergeRequest, 'milestone.title'));
-    Import.set(storyAfter, imported, 'details.title', Import.multilingual(glMergeRequest.title));
-    Import.set(storyAfter, imported, 'details.number', glMergeRequest.iid);
-    Import.set(storyAfter, imported, 'details.url', glMergeRequest.web_url);
+    _.set(storyAfter, 'public', !glMergeRequest.confidential);
+    _.set(storyAfter, 'tags', _.union(descriptionTags, labelTags));
+    _.set(storyAfter, 'details.state', glMergeRequest.state);
+    _.set(storyAfter, 'details.branch', glMergeRequest.target_branch);
+    _.set(storyAfter, 'details.source_branch', glMergeRequest.source_branch);
+    _.set(storyAfter, 'details.labels', glMergeRequest.labels);
+    _.set(storyAfter, 'details.milestone', _.get(glMergeRequest, 'milestone.title'));
+    _.set(storyAfter, 'details.title', glMergeRequest.title);
     if (_.isEqual(story, storyAfter)) {
         return null;
     }
