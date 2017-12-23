@@ -54,9 +54,9 @@ function copyEventProperties(story, author, glEvent, link) {
     _.set(storyAfter, 'type', 'repo');
     _.set(storyAfter, 'user_ids', [ author.id ]);
     _.set(storyAfter, 'role_ids', author.role_ids);
-    _.set(storyAfter, 'public', true);
     _.set(storyAfter, 'published', true);
     _.set(storyAfter, 'ptime', Moment(glEvent.created_at).toISOString());
+    _.set(storyAfter, 'public', true);
     _.set(storyAfter, 'details.action', glEvent.action_name);
     if (_.isEqual(story, storyAfter)) {
         return null;
@@ -99,6 +99,10 @@ function importRepositories(db, server) {
             return fetchLabels(server, glRepo.id).then((glLabels) => {
                 // find matching repo
                 return fetchMembers(server, glRepo.id).then((glUsers) => {
+                    // add owner to the list
+                    if (!_.some(glUsers, { id: glRepo.creator_id })) {
+                        glUsers.push({ id: glRepo.creator_id });
+                    }
                     return Promise.mapSeries(glUsers, (glUser) => {
                         return UserImporter.findUser(db, server, glUser);
                     }).filter(Boolean);
