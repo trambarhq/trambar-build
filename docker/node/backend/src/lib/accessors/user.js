@@ -1,6 +1,6 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 var ExternalData = require('accessors/external-data');
 
 module.exports = _.create(ExternalData, {
@@ -253,7 +253,7 @@ module.exports = _.create(ExternalData, {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
-        if (ExternalData.isRelevantTo(event, user, subscription)) {
+        if (ExternalData.isRelevantTo.call(this, event, user, subscription)) {
             var columns = _.keys(event.diff);
             var publicColumns = _.without(columns, 'settings');
             if (!_.isEmpty(publicColumns)) {
@@ -315,19 +315,19 @@ module.exports = _.create(ExternalData, {
         }
         if (!userBefore) {
             // normal user cannot create new user
-            throw new HttpError(400);
+            throw new HTTPError(400);
         }
         if (userBefore.id !== credentials.user.id) {
             // user cannot modify someone else
-            throw new HttpError(400);
+            throw new HTTPError(400);
         }
         if (userBefore.deleted) {
             // cannot modified a deleted user
-            throw new HttpError(400);
+            throw new HTTPError(400);
         }
         if (userReceived.deleted) {
             // users cannot delete themselves
-            throw new HttpError(400);
+            throw new HTTPError(400);
         }
     },
 

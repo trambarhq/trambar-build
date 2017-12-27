@@ -2,7 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
 var Data = require('accessors/data');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 
 module.exports = _.create(Data, {
     schema: 'both',
@@ -164,7 +164,7 @@ module.exports = _.create(Data, {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
-        if (Data.isRelevantTo(event, user, subscription)) {
+        if (Data.isRelevantTo.call(this, event, user, subscription)) {
             if (event.current.target_user_id === user.id) {
                 return true;
             }

@@ -164,6 +164,7 @@ function copyIssueProperties(story, author, glIssue, link) {
     issueLink.issue.number = glIssue.iid;
     if (!storyAfter.type || storyAfter.type === 'issue') {
         _.set(storyAfter, 'type', 'issue');
+        _.set(storyAfter, 'tags', _.union(descriptionTags, labelTags));
         _.set(storyAfter, 'user_ids', [ author.id ]);
         _.set(storyAfter, 'role_ids', author.role_ids);
         _.set(storyAfter, 'published', true);
@@ -184,6 +185,11 @@ function copyIssueProperties(story, author, glIssue, link) {
         _.set(storyAfter, 'tags', _.union(descriptionTags, labelTags));
         _.set(storyAfter, 'details.title', glIssue.title);
         _.set(storyAfter, 'details.labels', glIssue.labels);
+    }
+    if (story) {
+        if (story.details.state !== storyAfter.details.state) {
+            storyAfter.btime = new String('NOW()');
+        }
     }
     if (_.isEqual(story, storyAfter)) {
         return null;
@@ -246,8 +252,8 @@ function fetchIssue(server, glProjectId, glIssueId) {
  * @return {Promise<Number>}
  */
 function getIssueNumber(server, glProjectId, glIssueId) {
-    var baseUrl = _.get(server, 'settings.oauth.base_url');
-    var issueNumber = _.get(issueNumberCache, [ baseUrl, glProjectId, glIssueId ]);
+    var baseURL = _.get(server, 'settings.oauth.base_url');
+    var issueNumber = _.get(issueNumberCache, [ baseURL, glProjectId, glIssueId ]);
     if (issueNumber) {
         return Promise.resolve(issueNumber);
     }
@@ -255,11 +261,11 @@ function getIssueNumber(server, glProjectId, glIssueId) {
     return Transport.fetchEach(server, url, {}, (glIssue) => {
         var issueId = glIssue.id;
         var issueNumber = glIssue.iid;
-        _.set(issueNumberCache, [ baseUrl, glProjectId, issueId ], issueNumber);
+        _.set(issueNumberCache, [ baseURL, glProjectId, issueId ], issueNumber);
     }).then(() => {
-        var issueNumber = _.get(issueNumberCache, [ baseUrl, glProjectId, glIssueId ]);
+        var issueNumber = _.get(issueNumberCache, [ baseURL, glProjectId, glIssueId ]);
         if (!issueNumber) {
-            return Promise.reject(new HttpError(404));
+            return Promise.reject(new HTTPError(404));
         }
         return issueNumber;
     });

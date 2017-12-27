@@ -1,6 +1,6 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 var Data = require('accessors/data');
 
 module.exports = _.create(Data, {
@@ -157,7 +157,7 @@ module.exports = _.create(Data, {
             // admin console doesn't use this object currently
             return false;
         }
-        if (Data.isRelevantTo(event, user, subscription)) {
+        if (Data.isRelevantTo.call(this, event, user, subscription)) {
             if (event.current.target_user_id === user.id) {
                 return true;
             }
@@ -183,21 +183,21 @@ module.exports = _.create(Data, {
                     // deleting a bookmark sent to someone else
                     // current user must be among the senders
                     if (!_.includes(bookmarkBefore.user_ids, credentials.user.id)) {
-                        throw new HttpError(400);
+                        throw new HTTPError(400);
                     }
                 }
             } else {
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
             return bookmarkReceived;
         } else {
             // must be the current user
             if (!_.isEqual(bookmarkReceived.user_ids, [ credentials.user.id ])) {
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
             // can't create bookmarks to nothing
             if (!bookmarkReceived.story_id || !bookmarkReceived.target_user_id) {
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
         }
     },

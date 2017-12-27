@@ -1,7 +1,7 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 var ExternalData = require('accessors/external-data');
 
 module.exports = _.create(ExternalData, {
@@ -50,7 +50,9 @@ module.exports = _.create(ExternalData, {
         older_than: String,
         bumped_after: String,
         url: String,
+        has_tags: Boolean,
         search: Object,
+        per_user_limit: Number,
     },
     accessControlColumns: {
         public: Boolean,
@@ -91,6 +93,8 @@ module.exports = _.create(ExternalData, {
             );
             CREATE INDEX ON ${table} USING gin(("payloadIds"(details))) WHERE "payloadIds"(details) IS NOT NULL;
             CREATE INDEX ON ${table} ((COALESCE(ptime, btime))) WHERE published = true AND ready = true;
+            CREATE INDEX ON ${table} USING gin(user_ids);
+            CREATE INDEX ON ${table} USING gin(("lowerCase"(tags))) WHERE cardinality(tags) <> 0;
         `;
         //
         return db.execute(sql);
@@ -150,7 +154,9 @@ module.exports = _.create(ExternalData, {
             'older_than',
             'bumped_after',
             'url',
+            'has_tags',
             'search',
+            'per_user_limit',
         ];
         ExternalData.apply.call(this, _.omit(criteria, special), query);
 
@@ -172,10 +178,37 @@ module.exports = _.create(ExternalData, {
         if (criteria.url !== undefined) {
             conds.push(`details->>'url' = $${params.push(criteria.url)}`);
         }
-        if (criteria.search) {
-            return this.applyTextSearch(db, schema, criteria.search, query);
+        if (criteria.has_tags !== undefined) {
+            if (criteria.has_tags) {
+                conds.push(`CARDINALITY(tags) <> 0`);
+            } else {
+                conds.push(`CARDINALITY(tags) = 0`);
+            }
         }
-        return Promise.resolve();
+        var promise;
+        if (criteria.search) {
+            promise = this.applyTextSearch(db, schema, criteria.search, query);
+        }
+        return Promise.resolve(promise).then(() => {
+            if (typeof(criteria.per_user_limit) === 'number') {
+                // use a lateral join to limit the number of results per user
+                // apply conditions on sub-query
+                var user = require('accessors/user').getTableName('global');
+                var story = this.getTableName(schema);
+                var conditions = _.concat(`${user}.id = ANY(user_ids)`, query.conditions);
+                var subquery = `
+                    SELECT DISTINCT top_story.id
+                    FROM ${user} JOIN LATERAL (
+                        SELECT * FROM ${story}
+                        WHERE ${conditions.join(' AND ')}
+                        ORDER BY COALESCE(ptime, btime) DESC
+                        LIMIT ${criteria.per_user_limit}
+                    ) top_story ON true
+                `;
+                var condition = `id IN (${subquery})`
+                query.conditions = [ condition ];
+            }
+        });
     },
 
     /**
@@ -262,34 +295,36 @@ module.exports = _.create(ExternalData, {
             }
 
             if (storyReceived.published_version_id) {
-                // load the published versions
-                var criteria = { id: storyReceived.published_version_id, deleted: false };
-                return this.findOne(db, schema, criteria, '*').then((storyPublished) => {
-                    if (storyPublished) {
-                        // update the original row with properties from the temp copy
-                        var updates = {};
-                        updates.id = storyPublished.id;
-                        updates.details = storyReceived.details;
-                        updates.type = storyReceived.type;
-                        updates.user_ids = storyReceived.user_ids;
-                        updates.role_ids  = storyReceived.role_ids;
-                        updates.public = storyReceived.public;
+                if (storyReceived.published) {
+                    // load the published versions
+                    var criteria = { id: storyReceived.published_version_id, deleted: false };
+                    return this.findOne(db, schema, criteria, '*').then((storyPublished) => {
+                        if (storyPublished) {
+                            // update the original row with properties from the temp copy
+                            var updates = {};
+                            updates.id = storyPublished.id;
+                            updates.details = storyReceived.details;
+                            updates.type = storyReceived.type;
+                            updates.user_ids = storyReceived.user_ids;
+                            updates.role_ids  = storyReceived.role_ids;
+                            updates.public = storyReceived.public;
 
-                        // stick contents of the original row into the temp copy
-                        // so we can retrieve them later potentially
-                        storyReceived.details = storyPublished.details;
-                        storyReceived.type = storyPublished.type;
-                        storyReceived.user_ids = storyPublished.user_ids;
-                        storyReceived.role_ids  = storyPublished.role_ids;
-                        storyReceived.public = storyPublished.public;
-                        storyReceived.deleted = true;
+                            // stick contents of the original row into the temp copy
+                            // so we can retrieve them later potentially
+                            storyReceived.details = storyPublished.details;
+                            storyReceived.type = storyPublished.type;
+                            storyReceived.user_ids = storyPublished.user_ids;
+                            storyReceived.role_ids  = storyPublished.role_ids;
+                            storyReceived.public = storyPublished.public;
+                            storyReceived.deleted = true;
 
-                        // check permission again (just in case)
-                        this.checkWritePermission(updates, storyPublished, credentials);
-                        storiesPublished.push(updates);
-                    }
-                    return storyReceived;
-                });
+                            // check permission again (just in case)
+                            this.checkWritePermission(updates, storyPublished, credentials);
+                            storiesPublished.push(updates);
+                        }
+                        return storyReceived;
+                    });
+                }
             }
             return storyReceived;
         }).then((storiesReceived) => {
@@ -311,7 +346,7 @@ module.exports = _.create(ExternalData, {
             // admin console doesn't use this object currently
             return false;
         }
-        if (ExternalData.isRelevantTo(event, user, subscription)) {
+        if (ExternalData.isRelevantTo.call(this, event, user, subscription)) {
             if (event.current.published && event.current.ready) {
                 return true;
             }
@@ -331,14 +366,14 @@ module.exports = _.create(ExternalData, {
      */
     checkWritePermission: function(storyReceived, storyBefore, credentials) {
         if (credentials.access !== 'read-write') {
-            throw new HttpError(400);
+            throw new HTTPError(400);
         }
         if (storyBefore) {
             if (!_.includes(storyBefore.user_ids, credentials.user.id)) {
                 // can't modify an object that doesn't belong to the user
                 // unless user is an admin or a moderator
                 if (credentials.user.type !== 'admin' && credentials.user.type !== 'moderator') {
-                    throw new HttpError(400);
+                    throw new HTTPError(400);
                 }
             }
             if (storyReceived.hasOwnProperty('user_ids')) {
@@ -347,25 +382,25 @@ module.exports = _.create(ExternalData, {
                         // a coauthor can remove himself only
                         var withoutCurrentUser = _.without(storyBefore.user_ids, credentials.user.id);
                         if (!_.isEqual(storyReceived.user_ids, withoutCurrentUser)) {
-                            throw new HttpError(400);
+                            throw new HTTPError(400);
                         }
                     }
                     if (storyReceived.user_ids[0] !== storyBefore.user_ids[0]) {
                         // cannot make someone else the lead author
-                        throw new HttpError(400);
+                        throw new HTTPError(400);
                     }
                 }
             }
         } else {
             if (storyReceived.id) {
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
             if (!storyReceived.hasOwnProperty('user_ids')) {
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
             if (storyReceived.user_ids[0] !== credentials.user.id) {
                 // the lead author must be the current user
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
         }
     },

@@ -1,4 +1,5 @@
 module.exports = {
+    lowerCase,
     matchAny,
     hasCandidates,
     payloadIds,
@@ -7,6 +8,23 @@ module.exports = {
     extendAuthorization,
     externalIdStrings: require('./runtime').externalIdStrings
 };
+
+/**
+ * Convert strings in an array to lower case
+ *
+ * @param  {Array<String>} strings
+ *
+ * @return {Array<String>}
+ */
+function lowerCase(strings) {
+    for (var i = 0; i < strings.length; i++) {
+        strings[i] = strings[i].toLowerCase();
+    }
+    return strings;
+}
+lowerCase.args = 'strings text[]';
+lowerCase.ret = 'text[]';
+lowerCase.flags = 'IMMUTABLE';
 
 function matchAny(filters, objects) {
     for (var i = 0; i < objects.length; i++) {
@@ -70,18 +88,21 @@ payloadIds.flags = 'IMMUTABLE';
  * Copy properties of payload into matching resource
  *
  * @param  {Object} details
- * @param  {Number} payload
+ * @param  {Object} payload
  *
  * @return {Object}
  */
 function updatePayload(details, payload) {
+    // use etime to determine if resource is ready, since progress can get
+    // rounded to 100 before the final step
+    var ready = (payload.completion === 100 && payload.etime !== null);
     var resources = details.resources;
     if (resources) {
         for (var i = 0; i < resources.length; i++) {
             var res = resources[i];
             if (res.payload_id === payload.id) {
                 transferProps(payload.details, res);
-                res.ready = (payload.completion === 100);
+                res.ready = ready;
             }
         }
     } else {
@@ -89,7 +110,7 @@ function updatePayload(details, payload) {
         var res = details;
         if (res.payload_id === payload.id) {
             transferProps(payload.details, res);
-            res.ready = (payload.completion === 100);
+            res.ready = ready;
         }
     }
     return details;

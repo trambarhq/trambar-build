@@ -4,7 +4,7 @@ var Promise = require('bluebird');
 module.exports = Route;
 
 function Route(routeManager) {
-    this.url = routeManager.getUrl();
+    this.url = routeManager.getURL();
     this.path = _.replace(this.url, /[?#].*/, '');
     this.component = routeManager.getComponent();
     this.parameters = routeManager.getParameters();
@@ -171,8 +171,12 @@ Route.parseIdList = function(s) {
     if (s == undefined) {
         return undefined;
     }
-    var tokens = _.split(params.roles, '+');
-    return _.map(tokens, _.strictParseInt);
+    if (s) {
+        var tokens = _.split(s, '+');
+        return _.map(tokens, _.strictParseInt);
+    } else {
+        return [];
+    }
 }
 
 /**
@@ -196,6 +200,23 @@ Route.parseId = function(s, pattern) {
         s = m[1];
     }
     return _.strictParseInt(s);
+}
+
+/**
+ * Return the given string if it's YYYY-MM-DD; otherwise return an empty string
+ *
+ * @param  {String} s
+ *
+ * @return {String|undefined}
+ */
+Route.parseDate = function(s) {
+    if (s == undefined) {
+        return undefined;
+    }
+    if (/\d{4}-\d{2}-\d{2}/.test(s)) {
+        return s;
+    }
+    return '';
 }
 
 var regExpCache = {};

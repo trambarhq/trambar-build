@@ -15,13 +15,17 @@ module.exports = {
 function findTags(text) {
     var tags;
     if (typeof(text) === 'string') {
+        text = removeURLs(text);
+        text = removeEmails(text);
         tags = text.match(findRE);
     } else if(text instanceof Object) {
         tags = _.flatten(_.filter(_.map(text, (version) => {
+            version = removeURLs(version);
+            version = removeEmails(version);
             return String(version).match(findRE);
         })));
     }
-    return _.map(_.uniq(tags), _.toLower).sort();
+    return _.uniq(tags).sort();
 }
 
 function isTag(text) {
@@ -34,3 +38,11 @@ var pattern = `[@#][${characters}][${digits}${characters}]*`;
 
 var findRE = new RegExp(`${pattern}`, 'g');
 var checkRE = new RegExp(`^${pattern}$`);
+
+function removeURLs(text) {
+    return text.replace(/https?:\/\/\S+/g, '');
+}
+
+function removeEmails(text) {
+    return text.replace(/\w+@\w+.\w+/g, '');
+}

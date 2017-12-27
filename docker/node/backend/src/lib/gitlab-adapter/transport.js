@@ -4,7 +4,7 @@ var Request = require('request');
 var FS = Promise.promisifyAll(require('fs'));
 var Path = require('path');
 var Async = require('async-do-while');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 var Database = require('database');
 var Server = require('accessors/server');
 
@@ -240,14 +240,14 @@ function refresh(server) {
     var options = {
         json: true,
         body: payload,
-        baseUrl: server.settings.oauth.base_url,
+        baseURL: server.settings.oauth.base_url,
         uri: '/oauth/token',
         method: 'post',
     };
     return attempt(options).then((response) => {
         return updateAccessTokens(server, response);
     }).catch((err) => {
-        if (err instanceof HttpError) {
+        if (err instanceof HTTPError) {
             if (err.statusCode === 401) {
                 // TODO: reactivate this after more testing
                 //return updateAccessTokens(server, {}).throw(err);
@@ -291,7 +291,7 @@ function updateAccessTokens(server, response) {
  * @return {Promise<Object>}
  */
 function request(server, uri, method, query, payload, userToken) {
-    var baseUrl = _.trimEnd(server.settings.oauth.base_url, '/') + '/api/v4';
+    var baseURL = _.trimEnd(server.settings.oauth.base_url, '/') + '/api/v4';
     var oauthToken = server.settings.api.access_token;
     var headers;
     if (userToken) {
@@ -299,13 +299,13 @@ function request(server, uri, method, query, payload, userToken) {
     } else if (oauthToken) {
         headers = { Authorization: `Bearer ${oauthToken}` };
     } else {
-        return Promise.reject(new HttpError(401));
+        return Promise.reject(new HTTPError(401));
     }
     var options = {
         json: true,
         qs: query,
         body: payload,
-        baseUrl,
+        baseURL,
         uri,
         method,
         headers,
@@ -322,7 +322,7 @@ function request(server, uri, method, query, payload, userToken) {
         }).catch((err) => {
             // throw the error if it's HTTP 4xx
             lastError = err;
-            if (err instanceof HttpError) {
+            if (err instanceof HTTPError) {
                 if (err.statusCode >= 400 && err.statusCode <= 499) {
                     throw err;
                 }
@@ -348,7 +348,7 @@ function request(server, uri, method, query, payload, userToken) {
         return result;
     });
     return Async.end().catch((err) => {
-        if (err instanceof HttpError) {
+        if (err instanceof HTTPError) {
             if (err.statusCode === 401 || err.statusCode === 467) {
                 if (!userToken) {
                     // refresh access token
@@ -374,7 +374,7 @@ function attempt(options) {
     return new Promise((resolve, reject) => {
         Request(options, (err, resp, body) => {
             if (!err && resp && resp.statusCode >= 400) {
-                err = new HttpError(resp.statusCode);
+                err = new HTTPError(resp.statusCode);
             }
             if (!err) {
                 resolve(body);
@@ -388,7 +388,7 @@ function attempt(options) {
 var CACHE_FOLDER = process.env.CACHE_FOLDER;
 if (CACHE_FOLDER) {
     console.log('**** USING GIT CACHE ****');
-    var dynamicUrls = [
+    var dynamicURLs = [
         /\/projects\/\d+\/hooks/,
     ];
 
@@ -397,13 +397,13 @@ if (CACHE_FOLDER) {
         var cacheable = true;
         if (options.method !== 'get') {
             cacheable = false
-        } else if (_.some(dynamicUrls, (re) => { return re.test(options.uri) })) {
+        } else if (_.some(dynamicURLs, (re) => { return re.test(options.uri) })) {
             cacheable = false;
         }
         if (!cacheable) {
             return Request(options, callback);
         }
-        var cacheFilePath = getCachePath(options.baseUrl, options.uri, options.qs);
+        var cacheFilePath = getCachePath(options.baseURL, options.uri, options.qs);
         FS.readFileAsync(cacheFilePath, 'utf-8').then((json) => {
             var data = JSON.parse(json);
             callback(null, null, data);
@@ -433,8 +433,8 @@ if (CACHE_FOLDER) {
         });
     }
 
-    function getCachePath(baseUrl, uri, query) {
-        var m = /^https?:\/\/([^\/:]+)/.exec(baseUrl);
+    function getCachePath(baseURL, uri, query) {
+        var m = /^https?:\/\/([^\/:]+)/.exec(baseURL);
         var domain = m[1];
         var path = _.trimEnd(uri, '/');
         if (!_.startsWith(path, '/')) {

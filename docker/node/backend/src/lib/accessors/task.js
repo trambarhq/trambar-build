@@ -2,7 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Crypto = Promise.promisifyAll(require('crypto'));
 var Data = require('accessors/data');
-var HttpError = require('errors/http-error');
+var HTTPError = require('errors/http-error');
 
 module.exports = _.create(Data, {
     schema: 'both',
@@ -162,10 +162,10 @@ module.exports = _.create(Data, {
             var taskBefore = originals[index];
             if (taskBefore) {
                 // task cannot be modified
-                throw new HttpError(400);
+                throw new HTTPError(400);
             }
             if (taskReceived.user_id !== credentials.user.id) {
-                throw new HttpError(403);
+                throw new HTTPError(403);
             }
             return Crypto.randomBytesAsync(24).then((buffer) => {
                 taskReceived.token = buffer.toString('hex');
@@ -184,7 +184,7 @@ module.exports = _.create(Data, {
      * @return {Boolean}
      */
     isRelevantTo: function(event, user, subscription) {
-        if (Data.isRelevantTo(event, user, subscription)) {
+        if (Data.isRelevantTo.call(this, event, user, subscription)) {
             if (event.current.user_id) {
                 if (event.current.user_id === user.id) {
                     return true;

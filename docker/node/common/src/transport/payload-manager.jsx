@@ -2,8 +2,9 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var React = require('react'), PropTypes = React.PropTypes;
 var Moment = require('moment');
-var HttpRequest = require('transport/http-request');
+var HTTPRequest = require('transport/http-request');
 var BlobStream = require('transport/blob-stream');
+var BlobManager = require('transport/blob-manager');
 var Async = require('async-do-while');
 
 var Database = require('data/database');
@@ -48,19 +49,19 @@ module.exports = React.createClass({
         // create a task object on the server-side to track
         // backend processing of the payload
         return this.createTask(schema, action, options).then((task) => {
-            var params = _.pick(res, 'file', 'poster_file', 'stream', 'external_url', 'external_poster_url', 'url');
+            var sources = _.pick(res, 'file', 'poster_file', 'stream', 'external_url', 'external_poster_url', 'url');
             var payload = _.assign({
                 payload_id: task.id,
                 action: task.action,
                 token: task.token,
                 start: Moment(),
                 transferred: 0,
-                total: 0,
+                total: this.getPayloadSize(sources),
                 backendProgress: 0,
                 address: address,
                 schema: schema,
                 promise: null
-            }, params);
+            }, sources);
             var payloads = _.concat(this.state.payloads, payload);
             this.setState({ payloads }, () => {
                 this.triggerChangeEvent();
@@ -80,7 +81,7 @@ module.exports = React.createClass({
         switch (res.type) {
             case 'image':
                 if (!res.url) {
-                    if (res.file instanceof Blob) {
+                    if (res.file) {
                         // a local file
                         return 'image-upload';
                     } else if (res.external_url) {
@@ -93,7 +94,7 @@ module.exports = React.createClass({
                 if (!res.url) {
                     if (res.stream) {
                         return 'audio-upload-transcode';
-                    } else if (res.file instanceof Blob) {
+                    } else if (res.file) {
                         return 'audio-upload-transcode';
                     } else if (res.external_url) {
                         return 'audio-copy-transcode';
@@ -104,7 +105,7 @@ module.exports = React.createClass({
                 if (!res.url) {
                     if (res.stream) {
                         return 'video-upload-transcode';
-                    } else if (res.file instanceof Blob) {
+                    } else if (res.file) {
                         return 'video-upload-transcode';
                     } else if (res.external_url) {
                         return 'video-copy-transcode';
@@ -181,23 +182,17 @@ module.exports = React.createClass({
             // already started
             return;
         }
-        var options = {
-            responseType: 'json',
-        };
-        if (!payload.stream && payload.file) {
-            // upload progress for streams is handled differently
-            var file = payload.file;
-            options.onUploadProgress = (evt) => {
-                var bytesSent = (evt.total) ? Math.round(file.size * (evt.loaded / evt.total)) : 0;
-                this.updatePayloadStatus(payloadId, {
-                    transferred: bytesSent,
-                    total: file.size,
-                });
-            };
-        }
         var promise = this.createFormData(payload).then((formData) => {
-            var url = this.getUrl(payload);
-            return HttpRequest.fetch('POST', url, formData, options);
+            var options = {
+                responseType: 'json',
+                onUploadProgress: (evt) => {
+                    // scale value to total we had determined easlier
+                    var transferred = (evt.total) ? Math.round(payload.total * (evt.loaded / evt.total)) : 0;
+                    this.updatePayloadStatus(payloadId, { transferred });
+                },
+            };
+            var url = this.getURL(payload);
+            return HTTPRequest.fetch('POST', url, formData, options);
         });
         payload.promise = promise;
         return;
@@ -217,13 +212,13 @@ module.exports = React.createClass({
             // start the stream before we send the form data
             props.stream = this.stream(payload.stream);
         } else if (payload.file) {
-            props.file = payload.file;
+            props.file = BlobManager.get(payload.file);
         } else if (payload.external_url) {
             props.external_url = payload.external_url;
         }
         // poster
         if (payload.poster_file) {
-            props.poster_file = payload.poster_file;
+            props.poster_file = BlobManager.get(payload.poster_file);
         } else if (payload.external_poster_url) {
             props.external_poster_url = payload.external_poster_url;
         }
@@ -239,13 +234,43 @@ module.exports = React.createClass({
     },
 
     /**
+     * Return the size of a payload
+     *
+     * @param  {Object} payload
+     *
+     * @return {Number}
+     */
+    getPayloadSize: function(payload) {
+        var size = 0;
+        if (payload.stream) {
+            // count only the stream
+            size += payload.stream.size;
+        } else {
+            if (payload.file) {
+                var blob = BlobManager.get(payload.file);
+                if (blob) {
+                    size += blob.size;
+                }
+            }
+            if (payload.poster_file) {
+                var blob = BlobManager.get(payload.poster_file);
+                if (blob) {
+                    size += blob.size;
+                }
+            }
+        }
+        console.log(size);
+        return size;
+    },
+
+    /**
      * Return URL for uploading the given payload
      *
      * @param  {Object} payload
      *
      * @return {String}
      */
-    getUrl: function(payload) {
+    getURL: function(payload) {
         var schema = payload.schema;
         var url = payload.address;
         var id = payload.payload_id;
@@ -315,15 +340,13 @@ module.exports = React.createClass({
                             if (payload) {
                                 // evt.loaded and evt.total are encoded sizes,
                                 // which are slightly larger than the blob size
-                                var bytesSent = (evt.total) ? Math.round(blob.size * (evt.loaded / evt.total)) : 0;
-                                this.updatePayloadStatus(payload.id, {
-                                    transferred: uploadedChunkSize + bytesSent,
-                                    total: stream.size,
-                                });
+                                var bytesSentFromChunk = (evt.total) ? Math.round(blob.size * (evt.loaded / evt.total)) : 0;
+                                var transferred = uploadedChunkSize + bytesSentFromChunk;
+                                this.updatePayloadStatus(payload.payload_id, { transferred });
                             }
                         };
                     }
-                    return HttpRequest.fetch('POST', url, formData, options).then((response) => {
+                    return HTTPRequest.fetch('POST', url, formData, options).then((response) => {
                         if (!stream.id) {
                             stream.id = response.id;
                             // resolve promise when stream is obtained
@@ -433,7 +456,8 @@ module.exports = React.createClass({
             if (total === 0) {
                 // hasn't started yet
                 if (payload.file) {
-                    total = payload.file.size;
+                    var blob = BlobManager.get(payload.file);
+                    total = blob.size;
                 } else if (payload.stream) {
                     total = payload.stream.size;
                 }
