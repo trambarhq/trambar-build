@@ -82,7 +82,7 @@ services:
       - POSTGRES_USER=auth_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
       - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
-    command: [ node, auth-manager.js ]
+    command: [ node, session-manager.js ]
     depends_on:
       - postgres
   # Media server (Node.js)

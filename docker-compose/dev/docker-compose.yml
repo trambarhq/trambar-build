@@ -95,7 +95,7 @@ services:
     depends_on:
       - postgres
   # Authentication manager (Node.js)
-  auth_manager:
+  session_manager:
     image: trambar-node-dev
     volumes:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
@@ -111,7 +111,7 @@ services:
       - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
     extra_hosts:
       - gitlab.test:172.18.0.1
-    command: [ nodemon, auth-manager.js ]
+    command: [ nodemon, session-manager.js ]
     depends_on:
       - postgres
   # Media server (Node.js)
