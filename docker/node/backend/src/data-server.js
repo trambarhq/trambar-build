@@ -1,6 +1,7 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var Express = require('express');
+var CORS = require('cors');
 var BodyParser = require('body-parser');
 var Moment = require('moment');
 
@@ -11,12 +12,13 @@ var HTTPError = require('errors/http-error');
 var ProjectSettings = require('objects/settings/project-settings');
 
 // global accessors
-var Authorization = require('accessors/authorization');
+var Device = require('accessors/device');
 var Picture = require('accessors/picture');
 var Project = require('accessors/project');
 var Repo = require('accessors/repo');
 var Role = require('accessors/role');
 var Server = require('accessors/server');
+var Session = require('accessors/session');
 var Subscription = require('accessors/subscription');
 var System = require('accessors/system');
 var User = require('accessors/user');
@@ -35,6 +37,9 @@ module.exports = {
     stop,
 };
 
+const SESSION_LIFETIME_ADMIN = 60 * 24 * 1;
+const SESSION_LIFETIME_CLIENT = 60 * 24 * 30;
+
 var area = (process.env.POSTGRES_USER === 'admin_role') ? 'admin' : 'client';
 var server;
 
@@ -43,6 +48,7 @@ function start() {
         return db.need('global').then(() => {
             var app = Express();
             app.use(BodyParser.json());
+            app.use(CORS());
             app.set('json spaces', 2);
             app.route('/data/discovery/:schema/:table/').post(handleDiscovery).get(handleDiscovery);
             app.route('/data/retrieval/:schema/:table/:id?').post(handleRetrieval).get(handleRetrieval);
@@ -334,12 +340,17 @@ function handleStorage(req, res) {
  * @return {Promise<Number>}
  */
 function checkAuthorization(db, token) {
-    return Authorization.check(db, token, area).then((userId) => {
+    return Session.check(db, token, area).then((userId) => {
         if (!userId) {
             throw new HTTPError(401);
         }
-        var days = (area === 'client') ? 30 : 1;
-        return Authorization.extend(db, token, days).return(userId);
+        var minutes;
+        if (area === 'client') {
+            minutes = SESSION_LIFETIME_CLIENT;
+        } else if (area === 'admin') {
+            minutes = SESSION_LIFETIME_ADMIN;
+        }
+        return Session.extend(db, token, minutes).return(userId);
     });
 }
 
@@ -391,6 +402,7 @@ function fetchCredentials(db, userId, schema) {
 }
 
 var globalAccessors = [
+    Device,
     Picture,
     Project,
     Repo,
