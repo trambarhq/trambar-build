@@ -10,6 +10,7 @@
     <content src="index.html" />
     <access origin="*" />
     <preference name="SplashScreen" value="screen" />
+    <preference name="AutoHideSplashScreen" value="false" />
     <preference name="windows-target-version" value="10.0" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
