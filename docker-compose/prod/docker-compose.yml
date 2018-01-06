@@ -69,7 +69,7 @@ services:
     depends_on:
       - postgres
   # Authentication manager (Node.js)
-  auth_manager:
+  session_manager:
     restart: always
     image: trambar/trambar-node
     volumes:
