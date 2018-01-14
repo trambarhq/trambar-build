@@ -15,6 +15,7 @@ module.exports = React.createClass({
         basePath: PropTypes.string,
         discoveryFlags: PropTypes.object,
         retrievalFlags: PropTypes.object,
+        hasConnection: PropTypes.bool,
         cache: PropTypes.object,
 
         onChange: PropTypes.func,
@@ -22,6 +23,7 @@ module.exports = React.createClass({
         onExpiration: PropTypes.func,
         onViolation: PropTypes.func,
         onStupefaction: PropTypes.func,
+        onSearch: PropTypes.func,
     },
 
     /**
@@ -33,6 +35,7 @@ module.exports = React.createClass({
         return {
             refreshInterval: 15 * 60,   // 15 minutes
             basePath: '',
+            hasConnection: true,
         };
     },
 
@@ -42,10 +45,12 @@ module.exports = React.createClass({
      * @return {Object}
      */
     getInitialState: function() {
+        this.searching = false;
         return {
             recentSearchResults: [],
             recentStorageResults: [],
             recentRemovalResults: [],
+            activeSearches: [],
         };
     },
 
@@ -70,7 +75,7 @@ module.exports = React.createClass({
                     // return login information to caller
                     return {
                         system: res.system,
-                        providers: res.providers,
+                        servers: res.servers,
                     };
                 } else {
                     throw new HTTPError(session.error);
@@ -580,50 +585,64 @@ module.exports = React.createClass({
      * Invalidate queries based on changes
      *
      * @param  {String} address
-     * @param  {Object} changes
+     * @param  {Object|undefined} changes
      *
      * @return {Boolean}
      */
     invalidate: function(address, changes) {
         var changed = false;
-        _.forIn(changes, (idList, name) => {
-            var parts = _.split(name, '.');
-            var location = {
-                address: address,
-                schema: parts[0],
-                table: parts[1]
-            };
-            var relevantSearches = this.getRelevantRecentSearches(location);
-            _.each(relevantSearches, (search) => {
-                var dirty = false;
-                var expectedCount = getExpectedObjectCount(search);
-                if (expectedCount === search.results.length) {
-                    // see if the ids show up in the results
-                    _.each(idList, (id) => {
-                        var index = _.sortedIndexBy(search.results, { id }, 'id');
-                        var object = search.results[index];
-                        if (object && object.id === id) {
-                            dirty = true;
-                            return false;
-                        }
-                    });
-                } else {
-                    // we can't tell if new objects won't suddenly show up
-                    // in the search results
-                    dirty = true;
-                }
-                if (dirty) {
+        if (changes) {
+            _.forIn(changes, (idList, name) => {
+                var parts = _.split(name, '.');
+                var location = {
+                    address: address,
+                    schema: parts[0],
+                    table: parts[1]
+                };
+                var relevantSearches = this.getRelevantRecentSearches(location);
+                _.each(relevantSearches, (search) => {
+                    var dirty = false;
+                    var expectedCount = getExpectedObjectCount(search);
+                    if (expectedCount === search.results.length) {
+                        // see if the ids show up in the results
+                        _.each(idList, (id) => {
+                            var index = _.sortedIndexBy(search.results, { id }, 'id');
+                            var object = search.results[index];
+                            if (object && object.id === id) {
+                                dirty = true;
+                                return false;
+                            }
+                        });
+                    } else {
+                        // we can't tell if new objects won't suddenly show up
+                        // in the search results
+                        dirty = true;
+                    }
+                    if (dirty) {
+                        search.dirty = true;
+                        changed = true;
+                    }
+                });
+            });
+        } else {
+            // invalidate all results originating from address
+            _.each(this.state.recentSearchResults, (search) => {
+                var searchLocation = getSearchLocation(search);
+                if (searchLocation.address === address) {
                     search.dirty = true;
                     changed = true;
                 }
             });
-        });
+        }
         if (changed) {
             // tell data consuming components to rerun their queries
             // initially, they'd all get the data they had before
             // another change event will occur if new objects are
             // actually retrieved from the remote server
             this.triggerChangeEvent();
+
+            // update recent searches that aren't being used currently
+            this.schedulePrefetch(address);
         }
         return changed;
     },
@@ -720,6 +739,16 @@ module.exports = React.createClass({
         }
     },
 
+    triggerSearchEvent: function(searching) {
+        if (this.props.onSearch) {
+            this.props.onSearch({
+                type: 'search',
+                target: this,
+                searching
+            });
+        }
+    },
+
     /**
      * Look for a recent search that has the same criteria
      *
@@ -749,13 +778,19 @@ module.exports = React.createClass({
      * Perform a search on the server sude
      *
      * @param  {Object} search
+     * @param  {Boolean|undefined} background
      *
      * @return {Promise<Boolean>}
      */
-    searchRemoteDatabase: function(search) {
+    searchRemoteDatabase: function(search, background) {
         if (search.schema === 'local') {
             return Promise.resolve(false);
         }
+        if (!background) {
+            var activeSearches = _.union(this.state.activeSearches, [ search ]);
+            this.setState({ activeSearches });
+        }
+
         var location = getSearchLocation(search);
         var query = getSearchQuery(search);
         search.start = getCurrentTime();
@@ -800,8 +835,12 @@ module.exports = React.createClass({
             search.dirty = false;
 
             // update this.state.recentSearchResults
+            var activeSearches = this.state.activeSearches;
+            if (!background) {
+                activeSearches = _.without(this.state.activeSearches, search);
+            }
             var recentSearchResults = _.slice(this.state.recentSearchResults);
-            this.setState({ recentSearchResults });
+            this.setState({ recentSearchResults, activeSearches });
 
             // update retrieval time and save to cache
             var rtime = search.finish;
@@ -1175,11 +1214,76 @@ module.exports = React.createClass({
     },
 
     /**
+     * Inform parent
+     *
+     * @param  {Object} prevProps
+     * @param  {Object} prevState
+     */
+    componentDidUpdate: function(prevProps, prevState) {
+        if (prevState.activeSearches !== this.state.activeSearches) {
+            // since a search can start immediately after another one has ended,
+            // use a timeout function to reduce the freqeuncy of events
+            if (this.searchingTimeout) {
+                clearTimeout(this.searchingTimeout);
+            }
+            this.searchingTimeout = setTimeout(() => {
+                var searchingNow = !_.isEmpty(this.state.activeSearches);
+                if (this.searching !== searchingNow) {
+                    this.searching = searchingNow;
+                    this.triggerSearchEvent(searchingNow);
+                }
+                this.searchingTimeout = null;
+            }, 50);
+        }
+    },
+
+    /**
      * Clear session check interval function
      */
     componentWillUnmount: function() {
         clearInterval(this.sessionExpirationCheckInterval);
+        this.stopPrefetch();
     },
+
+    /**
+     * Start updating recent searches that are dirty
+     *
+     * @param  {String} address
+     */
+    schedulePrefetch: function(address) {
+        this.stopPrefetch();
+
+        var prefetchTimeout = this.prefetchTimeout = setTimeout(() => {
+            var dirtySearches = _.filter(this.state.recentSearchResults, (search) => {
+                if (search.address === address) {
+                    if (search.dirty) {
+                        return true;
+                    }
+                }
+            });
+            Promise.map(dirtySearches, (search) => {
+                // prefetching was cancelled
+                if (this.prefetchTimeout !== prefetchTimeout) {
+                    return false;
+                }
+                if (!search.dirty) {
+                    return false;
+                }
+                console.log('Prefetching', getSearchQuery(search));
+                return this.searchRemoteDatabase(search, true);
+            }, { concurrency: 4 });
+        }, 1000);
+    },
+
+    /**
+     * Stop updating recent searches
+     */
+    stopPrefetch: function() {
+        if (this.prefetchTimeout) {
+            clearTimeout(this.prefetchTimeout);
+            this.prefetchTimeout = null;
+        }
+    }
 });
 
 var authCache = {};

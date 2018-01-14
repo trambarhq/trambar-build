@@ -47,13 +47,15 @@ function start() {
         app.get('/media/images/:filename', handleImageOriginalRequest);
         app.get('/media/videos/:filename', handleVideoRequest);
         app.get('/media/audios/:filename', handleAudioRequest);
-        app.post('/media/html/screenshot/:schema/:taskId', upload.array(), handleWebsiteScreenshot);
+        app.get('/media/cliparts/:filename', handleClipartRequest);
+        app.post('/media/html/poster/:schema/:taskId', upload.array(), handleWebsitePoster);
         app.post('/media/images/upload/:schema/:taskId', upload.single('file'), handleImageUpload);
-        app.post('/media/videos/upload/:schema/:taskId', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'poster_file', maxCount: 1 }]), handleVideoUpload);
-        app.post('/media/audios/upload/:schema/:taskId', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'poster_file', maxCount: 1 }]), handleAudioUpload);
+        app.post('/media/videos/upload/:schema/:taskId', upload.single('file'), handleVideoUpload);
+        app.post('/media/videos/poster/:schema/:taskId', upload.single('file'), handleVideoPoster);
+        app.post('/media/audios/upload/:schema/:taskId', upload.single('file'), handleAudioUpload);
+        app.post('/media/audios/poster/:schema/:taskId', upload.single('file'), handleAudioPoster);
         app.post('/media/stream/:jobId', upload.single('file'), handleStreamAppend);
         app.post('/media/stream', upload.single('file'), handleStreamCreate);
-
         app.post('/internal/import', upload.single('file'), handleImageImport);
 
         CacheFolders.create();
@@ -81,7 +83,7 @@ function stop() {
  * @param  {Response} res
  * @param  {Object} result
  */
-function sendJson(res, result) {
+function sendJSON(res, result) {
     res.json(result);
 }
 
@@ -216,12 +218,29 @@ function handleAudioRequest(req, res) {
 }
 
 /**
+ * Handle clipart request
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleClipartRequest(req, res) {
+    var path = Path.resolve(`../media/cliparts/${req.params.filename}`);
+    getFileType(path).then((info) => {
+        res.type(info.mime);
+        res.set('Cache-Control', 'max-age=86400');
+        res.sendFile(path);
+    }).catch((err) => {
+        sendError(res, new HTTPError(404));
+    });
+}
+
+/**
  * Handle request for website screenshit
  *
  * @param  {Request} req
  * @param  {Response} res
  */
-function handleWebsiteScreenshot(req, res) {
+function handleWebsitePoster(req, res) {
     // generate hash from URL + date
     var schema = req.params.schema;
     var taskId = parseInt(req.params.taskId);
@@ -252,7 +271,7 @@ function handleWebsiteScreenshot(req, res) {
         // got nothing to return
         return {};
     }).then((results) => {
-        sendJson(res, results);
+        sendJSON(res, results);
     }).catch((err) => {
         sendError(res, err);
     });
@@ -286,7 +305,7 @@ function handleImageUpload(req, res) {
             return { url };
         });
     }).then((results) => {
-        sendJson(res, results);
+        sendJSON(res, results);
     }).catch((err) => {
         sendError(res, err);
     });
@@ -313,7 +332,7 @@ function handleImageImport(req, res) {
             return { url, format, width, height };
         });
     }).then((results) => {
-        sendJson(res, results);
+        sendJSON(res, results);
     }).catch((err) => {
         sendError(res, err);
     });
@@ -330,6 +349,16 @@ function handleVideoUpload(req, res) {
 }
 
 /**
+ * Handle video poster
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleVideoPoster(req, res) {
+    return handleMediaPoster(req, res, 'video');
+}
+
+/**
  * Handle audio upload
  *
  * @param  {Request} req
@@ -337,6 +366,16 @@ function handleVideoUpload(req, res) {
  */
 function handleAudioUpload(req, res) {
     return handleMediaUpload(req, res, 'audio');
+}
+
+/**
+ * Handle audio upload
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleAudioPoster(req, res) {
+    return handleMediaPoster(req, res, 'audio');
 }
 
 /**
@@ -350,10 +389,8 @@ function handleMediaUpload(req, res, type) {
     var token = req.query.token;
     var taskId = parseInt(req.params.taskId);
     var streamId = req.body.stream;
-    var file = _.get(req.files, 'file.0');
+    var file = req.file;
     var url = req.body.external_url;
-    var posterFile = _.get(req.files, 'poster_file.0');
-    var posterURL = req.poster_external_url;
     return checkTaskToken(schema, taskId, token).then(() => {
         if (streamId) {
             // handle streaming upload
@@ -381,7 +418,7 @@ function handleMediaUpload(req, res, type) {
                 if (!mediaFile) {
                     throw new HTTPError(400);
                 }
-                var url = `/media/${type}s/${srcHash}`;
+                var url = `/media/${type}s/${mediaFile.hash}`;
                 var job = VideoManager.startTranscodingJob(mediaFile.path, type, mediaFile.hash);
                 VideoManager.awaitTranscodingJob(job).then((job) => {
                     var details = {
@@ -394,23 +431,43 @@ function handleMediaUpload(req, res, type) {
             })
         }
     }).then((results) => {
-        return FileManager.preserveFile(posterFile, posterURL, CacheFolders.image).then((poster) => {
-            if (poster) {
-                var posterURL = `/media/images/${poster.hash}`;
-                ImageManager.getImageMetadata(poster.path).then((metadata) => {
-                    var details = {
-                        poster_url: posterURL,
-                        width: metadata.width,
-                        height: metadata.height,
-                    };
-                    return saveTaskProgress(schema, taskId, details);
-                });
-                results.poster_url = posterURL;
+        sendJSON(res, results);
+    }).catch((err) => {
+        sendError(res, err);
+    });
+}
+
+/**
+ * Handle video or audio poster upload
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleMediaPoster(req, res, type) {
+    var schema = req.params.schema;
+    var token = req.query.token;
+    var taskId = parseInt(req.params.taskId);
+    var streamId = req.body.stream;
+    var file = req.file;
+    var url = req.body.external_url;
+    return checkTaskToken(schema, taskId, token).then(() => {
+        return FileManager.preserveFile(file, url, CacheFolders.image).then((imageFile) => {
+            if (!imageFile) {
+                throw new HTTPError(400);
             }
-            return results;
+            var posterURL = `/media/images/${imageFile.hash}`;
+            ImageManager.getImageMetadata(imageFile.path).then((metadata) => {
+                var details = {
+                    poster_url: posterURL,
+                    width: metadata.width,
+                    height: metadata.height,
+                };
+                return saveTaskProgress(schema, taskId, details);
+            });
+            return { poster_url: posterURL };
         });
     }).then((results) => {
-        sendJson(res, results);
+        sendJSON(res, results);
     }).catch((err) => {
         sendError(res, err);
     });
@@ -437,7 +494,7 @@ function handleStreamCreate(req, res) {
         VideoManager.transcodeSegment(job, inputStream, file.size);
         return { id: jobId };
     }).then((results) => {
-        sendJson(res, results);
+        sendJSON(res, results);
     }).catch((err) => {
         sendError(res, err);
     });
@@ -463,7 +520,7 @@ function handleStreamAppend(req, res) {
             return VideoManager.endTranscodingJob(job);
         }
     }).then(() => {
-        sendJson(res, { status: 'OK' });
+        sendJSON(res, { status: 'OK' });
     }).catch((err) => {
         sendError(res, err);
     });
