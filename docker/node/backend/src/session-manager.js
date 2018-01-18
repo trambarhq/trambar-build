@@ -79,6 +79,21 @@ function sendHTML(res, html) {
 }
 
 /**
+ * Send error to browser as HTML
+ *
+ * @param  {Response} res
+ * @param  {Error} err
+ */
+function sendErrorHTML(res, err) {
+    err = sanitizeError(err);
+    var html = `
+        <h1>${err.statusCode} ${err.name}</h1>
+        <p>${err.message}</p>
+    `;
+    res.status(err.statusCode).type('html').send(html);
+}
+
+/**
  * Send JSON object to browser
  *
  * @param  {Response} res
@@ -89,12 +104,25 @@ function sendJSON(res, object) {
 }
 
 /**
- * Send error to browser
+ * Send error to browser as JSON
  *
  * @param  {Response} res
  * @param  {Error} err
  */
-function sendError(res, err) {
+function sendErrorJSON(res, err) {
+    err = sanitizeError(err);
+    res.status(err.statusCode).json(_.omit(err, 'statusCode'));
+}
+
+/**
+ * Replace unexpected error with generic one on production to avoid leaking
+ * sensitive information
+ *
+ * @param  {Error} err
+ *
+ * @return {Error}
+ */
+function sanitizeError(err) {
     if (!err.statusCode) {
         // not an expected error
         console.error(err);
@@ -104,11 +132,7 @@ function sendError(res, err) {
         }
         err = new HTTPError(500, { message });
     }
-    var html = `
-        <h1>${err.statusCode} ${err.name}</h1>
-        <p>${err.message}</p>
-    `;
-    res.status(err.statusCode).type('html').send(html);
+    return err;
 }
 
 /**
@@ -130,11 +154,13 @@ function handleSessionStart(req, res) {
                 var etime = getFutureTime(SESSION_LIFETIME_AUTHENTICATION);
                 return saveSession({ area, handle, etime });
             }).then((session) => {
-                return findOAuthProviders(system, area, session).then((providers) => {
+                return findOAuthServers(area).then((servers) => {
                     return {
                         session: _.pick(session, 'handle', 'etime'),
                         system: _.pick(system, 'details'),
-                        providers
+                        servers: _.map(servers, (server) => {
+                            return _.pick(server, 'id', 'type', 'details')
+                        })
                     };
                 });
             })
@@ -165,7 +191,7 @@ function handleSessionStart(req, res) {
     }).then((info) => {
         sendJSON(res, info);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorJSON(res, err);
     });
 }
 
@@ -192,7 +218,7 @@ function handleHTPasswdRequest(req, res) {
     }).then((info) => {
         sendJSON(res, info);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorJSON(res, err);
     });
 }
 
@@ -207,19 +233,26 @@ function handleSessionRetrieval(req, res) {
     var handle = _.toLower(req.query.handle);
     return findSession(handle).then((session) => {
         if (!session.activated) {
-            session.activated = true;
-            return saveSession(session).then((session) => {
-                return {
-                    session: _.pick(session, 'token', 'user_id', 'etime')
-                };
-            });
+            if (session.token) {
+                session.activated = true;
+                return saveSession(session).then((session) => {
+                    return {
+                        session: _.pick(session, 'token', 'user_id', 'etime')
+                    };
+                });
+            } else {
+                var error = session.details.error;
+                if (error) {
+                    throw new HTTPError(error);
+                }
+            }
         } else {
             throw new HTTPError(400);
         }
     }).then((info) => {
         sendJSON(res, info);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorJSON(res, err);
     });
 }
 
@@ -232,11 +265,13 @@ function handleSessionRetrieval(req, res) {
 function handleSessionTermination(req, res) {
     var handle = _.toLower(req.body.handle);
     return removeSession(handle).then((session) => {
-        return {};
+        return removeDevices(session.handle).then(() => {
+            return {};
+        });
     }).then((info) => {
         sendJSON(res, info);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorJSON(res, err);
     });
 }
 
@@ -266,7 +301,7 @@ function handleOAuthRequest(req, res, done) {
                     });
                 }).catch((err) => {
                     // save the error
-                    session.details.error = _.pick(err, 'message', 'stack');
+                    session.details.error = err;
                     return saveSession(session);
                 });
             });
@@ -275,7 +310,7 @@ function handleOAuthRequest(req, res, done) {
         var html = `<script> close() </script>`;
         sendHTML(res, html);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorHTML(res, err);
     });
 }
 
@@ -300,7 +335,7 @@ function handleOAuthTestRequest(req, res, done) {
         var html = `<h1>OK</h1>`;
         sendHTML(res, html);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorHTML(res, err);
     });
 }
 
@@ -355,7 +390,7 @@ function handleOAuthActivationRequest(req, res, done) {
         var html = `<h1>OK</h1>`;
         sendHTML(res, html);
     }).catch((err) => {
-        sendError(res, err);
+        sendErrorHTML(res, err);
     });
 }
 
@@ -563,6 +598,22 @@ function findServer(serverId) {
 }
 
 /**
+ * Find servers that provide OAuth authentication
+ *
+ * @param  {String} area
+ *
+ * @return {Promise<Array<Server>>}
+ */
+function findOAuthServers(area) {
+    return Database.open().then((db) => {
+        var criteria = { deleted: false };
+        return Server.find(db, 'global', criteria, '*').filter((server) => {
+            return canProvideAccess(server, area);
+        });
+    });
+}
+
+/**
  * Create or update a server object
  *
  * @param  {Server} server
@@ -622,6 +673,23 @@ function findUserByName(username) {
             }
             return user;
         });
+    });
+}
+
+/**
+ * Remove devices specified session handle(s)
+ *
+ * @param  {String|Array<String>} handles
+ *
+ * @return {Array<Device>}
+ */
+function removeDevices(handles) {
+    return Database.open().then((db) => {
+        var criteria = {
+            session_handle: handles,
+            deleted: false,
+        };
+        return Device.updateMatching(db, 'global', criteria, { deleted: true });
     });
 }
 
@@ -687,34 +755,6 @@ function findMatchingUser(server, account) {
                     }
                 }
             });
-        });
-    });
-}
-
-/**
- * Find OAuth providers among servers
- *
- * @param  {System} system
- * @param  {String} area
- * @param  {Session} session
- *
- * @return {Promise<Array>}
- */
-function findOAuthProviders(system, area, session) {
-    return Database.open().then((db) => {
-        var address = _.get(system, 'settings.address');
-        if (!address) {
-            return [];
-        }
-        var criteria = { disabled: false, deleted: false };
-        return Server.find(db, 'global', criteria, '*').filter((server) => {
-            return canProvideAccess(server, area);
-        }).map((server) => {
-            return {
-                type: server.type,
-                details: server.details,
-                url: `${address}/session/${server.type}?sid=${server.id}&handle=${session.handle}`,
-            };
         });
     });
 }
@@ -985,7 +1025,10 @@ function deleteExpiredSessions() {
             authorization_id: null,
             expired: true,
         };
-        return Session.updateMatching(db, 'global', criteria, { deleted: true });
+        return Session.updateMatching(db, 'global', criteria, { deleted: true }).then((sessions) => {
+            var handles = _.map(sessions, 'handle');
+            return removeDevices(handles).return(sessions);
+        });
     });
 }
 
