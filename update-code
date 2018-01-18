@@ -27,7 +27,7 @@ Shell.chdir(__dirname);
 Shell.chdir('trambar/client');
 Shell.run('npm install');
 Shell.run('npm run build');
-//Shell.run('npm run build cordova');
+Shell.run('npm run build cordova');
 Shell.chdir(__dirname);
 
 // copy files into Docker folder

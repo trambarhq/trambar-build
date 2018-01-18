@@ -1,0 +1,112 @@
+#!/bin/env node
+
+var _ = require('lodash');
+var Promise = require('bluebird');
+var FS = require('fs');
+var Path = require('path');
+var Phantom = require('phantom');
+var XML2JS = require('xml2js');
+
+getSplashScreens().then((screens) => {
+    return Promise.each(screens, (screen) => {
+        var filename = 'splash-screen-simplified.html';
+        var path = Path.resolve(`${__dirname}/../../trambar/client/assets/${filename}`);
+        if (/^[A-Z]:\\/i.test(path)) {
+            path = '/' + _.replace(path, /\\/g, '/');
+        }
+        var url = 'file://' + path;
+        var dstPath = Path.resolve(`./trambar/${screen.src}`);
+        var width = parseInt(screen.width);
+        var height = parseInt(screen.height);
+        switch (screen.density) {
+            case 'ldpi':
+                width = 36;
+                height = 36;
+                break;
+            case 'mdpi':
+                width = 48;
+                height = 48;
+                break;
+            case 'hdpi':
+                width = 72;
+                height = 72;
+                break;
+            case 'xhdpi':
+                width = 96;
+                height = 96;
+                break;
+            case 'xxhdpi':
+                width = 144;
+                height = 144;
+                break;
+            case 'xxxhdpi':
+                width = 192;
+                height = 192;
+                break;
+        }
+        if (width && height && dstPath) {
+            return createSplashScreen(url, width, height, dstPath).catch((err) => {
+                console.error(err);
+            });
+        }
+    }).then(() => {
+        process.exit(0);
+    });
+});
+
+function createSplashScreen(url, width, height, dstPath) {
+    console.log(`Creating ${dstPath}...`);
+    try {
+        FS.unlinkSync(dstPath);
+    } catch (err) {
+    }
+    return B(Phantom.create(['--ignore-ssl-errors=yes'])).then((phantom) => {
+        return B(phantom.createPage()).then((page) => {
+            var zoom = 1;
+            if (width > height) {
+                zoom = width / 1280;
+            } else {
+                zoom = height / 1024;
+            }
+            var properties = {
+                viewportSize: { width,  height },
+                zoomFactor: zoom,
+            };
+            return Promise.each(_.keys(properties), (key) => {
+                return page.property(key, properties[key]);
+            }).then(() => {
+                return page.open(url);
+            }).then(() => {
+                return page.render(dstPath);
+            });
+        }).finally(() => {
+            return phantom.exit();
+        });
+    });
+}
+
+function getSplashScreens() {
+    return new Promise((resolve, reject) => {
+        var configPath = './trambar/config.xml';
+        var configText = FS.readFileSync(configPath, 'utf8');
+        XML2JS.parseString(configText, (err, config) => {
+            if (!err) {
+                var list = [];
+                _.each(config.widget.platform, (platform) => {
+                    _.each(platform.icon, (icon) => {
+                        var object = _.clone(icon.$);
+                        object.platform = platform.$.name;
+                        list.push(object);
+                    });
+                });
+                resolve(list);
+            } else {
+                reject(err);
+            }
+        });
+    });
+}
+
+function B(p) {
+    return Promise.resolve(p);
+}

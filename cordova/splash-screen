@@ -1,4 +1,4 @@
-#!/usr/bin/node
+#!/bin/env node
 
 var _ = require('lodash');
 var Promise = require('bluebird');
@@ -8,8 +8,16 @@ var Phantom = require('phantom');
 var XML2JS = require('xml2js');
 
 getSplashScreens().then((screens) => {
-    var url = 'file://' + Path.resolve(`${__dirname}/../../trambar/client/assets/splash-screen.html`);
     return Promise.each(screens, (screen) => {
+        var filename = 'splash-screen.html';
+        if (screen.platform === 'windows') {
+            filename = 'splash-screen-simplified.html';
+        }
+        var path = Path.resolve(`${__dirname}/../../trambar/client/assets/${filename}`);
+        if (/^[A-Z]:\\/i.test(path)) {
+            path = '/' + _.replace(path, /\\/g, '/');
+        }
+        var url = 'file://' + path;
         var dstPath = Path.resolve(`./trambar/${screen.src}`);
         var width = parseInt(screen.width);
         var height = parseInt(screen.height);
@@ -113,7 +121,9 @@ function getSplashScreens() {
                 var list = [];
                 _.each(config.widget.platform, (platform) => {
                     _.each(platform.splash, (splash) => {
-                        list.push(splash.$);
+                        var object = _.clone(splash.$);
+                        object.platform = platform.$.name;
+                        list.push(object);
                     });
                 });
                 resolve(list);
