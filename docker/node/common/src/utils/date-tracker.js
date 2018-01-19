@@ -29,10 +29,14 @@ var dateTransforms = {
         return m.subtract(2, 'month').startOf('day');
     },
     startOfWeek: (m) => {
-        return m.locale(currentLocale).startOf('week');
+        if (currentLocale) {
+            return m.locale(currentLocale).startOf('week');
+        }
     },
     endOfWeek: (m) => {
-        return m.locale(currentLocale).endOf('week');
+        if (currentLocale) {
+            return m.locale(currentLocale).endOf('week');
+        }
     },
     startOfMonth: (m) => {
         return m.startOf('month');
@@ -68,7 +72,7 @@ function removeEventListener(type, f) {
     }
 }
 
-var currentLocale = 'en-US';
+var currentLocale = '';
 
 /**
  * Set the locale, used for determining what's the first day of the week
@@ -99,11 +103,13 @@ function updateRelativeDates(m) {
     _.each(dateTransforms, (f, name) => {
         var r = f(m.clone());
         var before = exports[name];
-        var after = format(r);
-        if (before !== after) {
-            exports[name] = after;
-            exports[name + 'ISO'] = r.toISOString();
-            changed = true;
+        if (r) {
+            var after = format(r);
+            if (before !== after) {
+                exports[name] = after;
+                exports[name + 'ISO'] = r.toISOString();
+                changed = true;
+            }
         }
     });
     return changed;
