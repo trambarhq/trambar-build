@@ -1,4 +1,4 @@
-#!/bin/env node
+#!/usr/bin/env node
 
 var _ = require('lodash');
 var Promise = require('bluebird');
@@ -9,9 +9,15 @@ var XML2JS = require('xml2js');
 
 getSplashScreens().then((screens) => {
     return Promise.each(screens, (screen) => {
+        var width = parseInt(screen.width);
+        var height = parseInt(screen.height);
+        var scaling = 1;
         var filename = 'splash-screen.html';
         if (screen.platform === 'windows') {
-            filename = 'splash-screen-simplified.html';
+            filename = 'splash-screen-simple.html';
+            if (width > height) {
+                scaling = 2;
+            }
         }
         var path = Path.resolve(`${__dirname}/../../trambar/client/assets/${filename}`);
         if (/^[A-Z]:\\/i.test(path)) {
@@ -19,8 +25,6 @@ getSplashScreens().then((screens) => {
         }
         var url = 'file://' + path;
         var dstPath = Path.resolve(`./trambar/${screen.src}`);
-        var width = parseInt(screen.width);
-        var height = parseInt(screen.height);
         switch (screen.density) {
             case 'port-ldpi':
                 width = 200;
@@ -72,7 +76,7 @@ getSplashScreens().then((screens) => {
                 break;
         }
         if (width && height && dstPath) {
-            return createSplashScreen(url, width, height, dstPath).catch((err) => {
+            return createSplashScreen(url, width, height, dstPath, scaling).catch((err) => {
                 console.error(err);
             });
         }
@@ -81,7 +85,7 @@ getSplashScreens().then((screens) => {
     });
 });
 
-function createSplashScreen(url, width, height, dstPath) {
+function createSplashScreen(url, width, height, dstPath, scaling) {
     console.log(`Creating ${dstPath}...`);
     try {
         FS.unlinkSync(dstPath);
@@ -91,10 +95,11 @@ function createSplashScreen(url, width, height, dstPath) {
         return B(phantom.createPage()).then((page) => {
             var zoom = 1;
             if (width > height) {
-                zoom = width / 1280;
+                zoom = width / 1024;
             } else {
                 zoom = height / 1024;
             }
+            zoom *= scaling;
             var properties = {
                 viewportSize: { width,  height },
                 zoomFactor: zoom,
@@ -113,6 +118,7 @@ function createSplashScreen(url, width, height, dstPath) {
 }
 
 function getSplashScreens() {
+    var chosen = process.argv[2] || 'all';
     return new Promise((resolve, reject) => {
         var configPath = './trambar/config.xml';
         var configText = FS.readFileSync(configPath, 'utf8');
@@ -123,7 +129,9 @@ function getSplashScreens() {
                     _.each(platform.splash, (splash) => {
                         var object = _.clone(splash.$);
                         object.platform = platform.$.name;
-                        list.push(object);
+                        if (chosen === 'all' || object.platform === chosen) {
+                            list.push(object);
+                        }
                     });
                 });
                 resolve(list);
