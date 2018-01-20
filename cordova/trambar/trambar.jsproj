@@ -116,6 +116,12 @@
     <Content Include="**\**" Exclude="**\platforms\**;**\bin\**;**\bld\**;**\node_modules\**;**\simulation\**;**\plugins\**;.gitignore;trambar.*" />
   </ItemGroup>
   <ItemGroup>
+    <Content Remove="res\native\windows\Package.StoreAssociation.xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="res\native\windows\Package.StoreAssociation.xml" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Update="config.xml">
       <SubType>Designer</SubType>
     </Content>

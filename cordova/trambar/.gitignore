@@ -2,3 +2,8 @@ plugins
 platforms
 bin
 bld
+build.json
+Package.StoreAssociation.xml
+*.pfx
+*.map
+*.user
