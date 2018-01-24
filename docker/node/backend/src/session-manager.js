@@ -283,8 +283,9 @@ function handleSessionTermination(req, res) {
  * @param  {Function} done
  */
 function handleOAuthRequest(req, res, done) {
-    var serverId = parseInt(req.query.sid);
-    var handle = _.toLower(req.query.handle);
+    var query = extractQueryVariables(req.query);
+    var serverId = parseInt(query.sid);
+    var handle = _.toLower(query.handle);
     return findSession(handle).then((session) => {
         return findSystem().then((system) => {
             return findServer(serverId).then((server) => {
@@ -322,10 +323,11 @@ function handleOAuthRequest(req, res, done) {
  * @param  {Function}  done
  */
 function handleOAuthTestRequest(req, res, done) {
-    if (!req.query.test) {
+    var query = extractQueryVariables(req.query);
+    if (!query.test) {
         return done();
     }
-    var serverId = parseInt(req.query.sid);
+    var serverId = parseInt(query.sid);
     return findSystem().then((system) => {
         return findServer(serverId).then((server) => {
             var params = { test: 1, sid: serverId, handle: 'TEST' };
@@ -347,11 +349,12 @@ function handleOAuthTestRequest(req, res, done) {
  * @param  {Function}  done
  */
 function handleOAuthActivationRequest(req, res, done) {
-    if (!req.query.activation) {
+    var query = extractQueryVariables(req.query);
+    if (!query.activation) {
         return done();
     }
-    var serverId = parseInt(req.query.sid);
-    var handle = _.toLower(req.query.handle);
+    var serverId = parseInt(query.sid);
+    var handle = _.toLower(query.handle);
     return findSession(handle).then((session) => {
         // make sure we have admin access
         if (session.area !== 'admin') {
@@ -360,11 +363,7 @@ function handleOAuthActivationRequest(req, res, done) {
         return findSystem().then((system) => {
             return findServer(serverId).then((server) => {
                 var params = { activation: 1, sid: serverId, handle };
-                var scope;
-                if (server.type === 'gitlab') {
-                    scope = [ 'api' ];
-                }
-                return authenticateThruPassport(req, res, system, server, params, scope).then((account) => {
+                return authenticateThruPassport(req, res, system, server, params).then((account) => {
                     var profile = account.profile._json;
                     var isAdmin = false;
                     if (server.type === 'gitlab') {
@@ -449,14 +448,13 @@ function authorizeUser(session, user, details, activate) {
  * @param  {System} system
  * @param  {Server} server
  * @param  {Object} params
- * @param  {String} scope
  *
  * @return {Promise<Object>}
  */
-function authenticateThruPassport(req, res, system, server, params, scope) {
+function authenticateThruPassport(req, res, system, server, params) {
     return new Promise((resolve, reject) => {
         var provider = req.params.provider;
-        // add params as query variables in callback URL
+        // query variables are send as the state parameter
         var query = _.reduce(params, (query, value, name) => {
             if (query) {
                 query += '&';
@@ -468,26 +466,16 @@ function authenticateThruPassport(req, res, system, server, params, scope) {
         if (!address) {
             throw new HTTPError(400);
         }
-        var settings = {
+        var settings = addServerSpecificSettings(server, {
             clientID: server.settings.oauth.client_id,
             clientSecret: server.settings.oauth.client_secret,
             baseURL: server.settings.oauth.base_url,
-            callbackURL: `${address}/session/${provider}/callback/?${query}`,
-        };
-        var options = { session: false, scope };
-        if (provider === 'facebook') {
-            // ask Facebook to return these fields
-            settings.profileFields = [
-                'id',
-                'email',
-                'gender',
-                'link',
-                'displayName',
-                'name',
-                'picture',
-                'verified'
-            ];
-        }
+            callbackURL: `${address}/session/${provider}/callback/`,
+        });
+        var options = addServerSpecificOptions(server, params, {
+            session: false,
+            state: query,
+        });
         // create strategy object, resolving promise when we have the profile
         var Strategy = findPassportPlugin(server);
         var strategy = new Strategy(settings, (accessToken, refreshToken, profile, done) => {
@@ -497,14 +485,18 @@ function authenticateThruPassport(req, res, system, server, params, scope) {
         });
         // trigger Passport middleware manually
         Passport.use(strategy);
-        var auth = Passport.authenticate(server.type, options, (err, user, info) => {
+        var authType = server.type;
+        var auth = Passport.authenticate(strategy.name, options, (err, user, info) => {
             // if this callback is called, then authentication has failed, since
             // the callback passed to Strategy() resolves the promise and does
             // not invoke done()
-            reject(new HTTPError(403, {
-                message: info.message,
-                reason: 'access-denied',
-            }));
+            var message, reason;
+            if (info && info.message) {
+                message = info.message;
+            } else if (err && err.message) {
+                message = err.message;
+            }
+            reject(new HTTPError(403, { message, reason: 'access-denied' }));
         });
         auth(req, res);
     });
@@ -558,7 +550,6 @@ function findSession(handle) {
         };
         return Session.findOne(db, 'global', criteria, '*').then((session) => {
             if (!session) {
-                console.log(criteria);
                 throw new HTTPError(404);
             }
             return session;
@@ -805,8 +796,15 @@ function findPassportPlugin(server) {
         github: 'passport-github',
         gitlab: 'passport-gitlab2',
         google: 'passport-google-oauth2',
+        windows: 'passport-windowslive',
     };
-    return require(plugins[server.type]);
+    var module = require(plugins[server.type]);
+    if (!(module instanceof Function)) {
+        if (module.Strategy) {
+            module = module.Strategy;
+        }
+    }
+    return module;
 }
 
 /**
@@ -889,6 +887,7 @@ function copyUserProperties(user, image, server, profile, link) {
         _.set(userAfter, 'username', username);
         _.set(userAfter, 'details.name', name);
         _.set(userAfter, 'details.email', email);
+        Import.join(userAfter, link);
         Import.attach(userAfter, 'image', image);
 
         // set user type
@@ -1013,6 +1012,80 @@ function createRandomToken(bytes) {
  */
 function getFutureTime(minutes) {
     return new String(`NOW() + '${minutes} minute'`);
+}
+
+/**
+ * Add server-specific OAuth settings (passed to constructor)
+ *
+ * @param  {Server} server
+ * @param  {Object} settings
+ *
+ * @return {Object}
+ */
+function addServerSpecificSettings(server, settings) {
+    switch (server.type) {
+        case 'dropbox':
+            settings.apiVersion = '2';
+            break;
+    }
+    return settings;
+}
+
+/**
+ * Add server-specific OAuth options
+ *
+ * @param  {Server} server
+ * @param  {Object} params
+ * @param  {Object} options
+ *
+ * @return {Object}
+ */
+function addServerSpecificOptions(server, params, options) {
+    switch (server.type) {
+        case 'facebook':
+            options.profileFields = [ 'id', 'email', 'gender', 'link', 'displayName', 'name', 'picture', 'verified' ];
+            break;
+        case 'gitlab':
+            if (params.activation) {
+                options.scope = [ 'api' ];
+            }
+            break;
+        case 'google':
+            options.scope = [ 'profile' ];
+            break;
+        case 'windows':
+            options.scope = [ 'wl.signin', 'wl.basic', 'wl.emails' ];
+            break;
+    }
+    return options;
+}
+
+function extractQueryVariables(query) {
+    if (query.state) {
+        return parseQueryString(query.state);
+    } else {
+        return query;
+    }
+}
+
+/**
+ * Parse a query string
+ *
+ * @param  {String} queryString
+ *
+ * @return {Object}
+ */
+function parseQueryString(queryString) {
+    var values = {};
+    var pairs = _.split(queryString, '&');
+    _.each(pairs, (pair) => {
+        var parts = _.split(pair, '=');
+        var name = decodeURIComponent(parts[0]);
+        var value = decodeURIComponent(parts[1] || '');
+        value = _.replace(value, /\+/g, ' ');
+        values[name] = value;
+    });
+    return values;
 }
 
 /**

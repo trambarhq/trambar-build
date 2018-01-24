@@ -15,6 +15,7 @@ module.exports = React.createClass({
         relayAddress: PropTypes.string,
         initialReconnectionDelay: PropTypes.number,
         maximumReconnectionDelay: PropTypes.number,
+        searching: PropTypes.bool,
 
         onConnect: PropTypes.func,
         onDisconnect: PropTypes.func,
@@ -54,6 +55,47 @@ module.exports = React.createClass({
         };
     },
 
+    /**
+     * Wait for database queries to end or time limit to be reached
+     *
+     * @param  {Number} limit
+     *
+     * @return {Promise}
+     */
+    waitForSearchIdling: function(limit) {
+        return new Promise((resolve, reject) => {
+            var timeout;
+            var onSearchIdling = () => {
+                resolve();
+                this.onSearchIdling = null;
+                clearTimeout(timeout);
+            };
+            // ensure it's trigger within a given amount of time
+            timeout = setTimeout(onSearchIdling, limit);
+            if (this.onSearchIdling) {
+                // call the previous handler
+                this.onSearchIdling();
+            }
+            this.onSearchIdling = onSearchIdling;
+        });
+    },
+
+    /**
+     * Check if database queries have finished
+     *
+     * @param  {Object} nextProps
+     */
+    componentWillReceiveProps: function(nextProps) {
+        if (this.props.searching && !nextProps.searching) {
+            if (this.onSearchIdling) {
+                this.onSearchIdling();
+            }
+        }
+    },
+
+    /**
+     * Initialize plugin and attach handlers
+     */
     componentDidMount: function() {
         if (!pushNotification) {
             var params = {
@@ -70,6 +112,10 @@ module.exports = React.createClass({
         pushNotification.on('registration', this.handleRegistration);
         pushNotification.on('notification', this.handleNotification);
         pushNotification.on('error', this.handleError);
+
+        if (cordova.platformId === 'windows') {
+            document.addEventListener('activated', this.handleActivation);
+        }
    },
 
     /**
@@ -85,6 +131,20 @@ module.exports = React.createClass({
              if (this.props.relayAddress && this.state.registrationId) {
                  this.register(this.props.relayAddress, this.props.serverAddress, this.state.registrationId, this.state.registrationType);
              }
+        }
+    },
+
+    /**
+     * Clean up on unmount
+     */
+    componentWillUnmount: function() {
+        if (pushNotification) {
+            pushNotification.off('registration', this.handleRegistration);
+            pushNotification.off('notification', this.handleNotification);
+            pushNotification.off('error', this.handleError);
+        }
+        if (cordova.platformId === 'windows') {
+            document.removeEventListener('activated', this.handleActivation);
         }
     },
 
@@ -222,10 +282,15 @@ module.exports = React.createClass({
      * @param  {Object} data
      */
     handleRegistration: function(data) {
-        this.setState({
-            registrationId: data.registrationId,
-            registrationType: _.toLower(data.registrationType),
-        });
+        var id = data.registrationId;
+        var type = _.toLower(data.registrationType);
+        if (!type) {
+            // the type is missing for WNS
+            if (/windows/.test(id)) {
+                type = 'wns';
+            }
+        }
+        this.setState({ registrationId: id, registrationType: type });
     },
 
     /**
@@ -234,32 +299,88 @@ module.exports = React.createClass({
      * @param  {Object} data
      */
     handleNotification: function(data) {
-        var additionalData = data.additionalData || {};
-        var address = additionalData.address;
-        var changes = additionalData.changes;
-        if (changes) {
-            this.triggerNotifyEvent(address, changes);
-        } else if (data.message) {
-            if (!additionalData.foreground) {
-                var alert = {
-                    title: data.title,
-                    message: data.message,
-                    type: additionalData.type,
-                    schema: additionalData.schema,
-                    notification_id: parseInt(additionalData.notification_id),
-                    reaction_id: parseInt(additionalData.reaction_id),
-                    story_id: parseInt(additionalData.story_id),
-                    user_id: parseInt(additionalData.user_id),
-                };
-                this.triggerAlertClickEvent(address, alert);
-            }
+        if (cordova.platformId === 'windows') {
+            // handle WNS response separately
+            this.handleWNSNotification(data);
+        } else {
+            // GCM and APNS responses are sufficiently normalized
+            this.handleGCMNotification(data);
         }
+
+        // store data received in a list for diagnostic purpose
         var recentMessages = _.slice(this.state.recentMessages);
         recentMessages.unshift(data);
         if (recentMessages.length > 10) {
            recentMessages.splice(10);
         }
         this.setState({ recentMessages })
+    },
+
+    /**
+     * Handle notification on Android and iOS
+     *
+     * @param  {Object} data
+     */
+    handleGCMNotification: function(data) {
+        var additionalData = data.additionalData;
+        var address = additionalData.address;
+        var changes = additionalData.changes;
+        if (changes) {
+            this.triggerNotifyEvent(address, changes);
+
+            this.waitForSearchIdling(10 * 1000).then(() => {
+                signalBackgroundProcessCompletion(data.notId);
+            });
+        } else if (data.message) {
+            // if notification was received in the background, the event is
+            // triggered when the user clicks on the notification
+            if (!additionalData.foreground) {
+                var alert = recreateAlert(additionalData);
+                this.triggerAlertClickEvent(address, alert);
+                signalBackgroundProcessCompletion(data.notId);
+            }
+        }
+    },
+
+    /**
+     * Handle notification on Windows
+     *
+     * @param  {Object} data
+     */
+    handleWNSNotification: function(data) {
+        if (data.launchArgs) {
+            // notification is clicked while app isn't running
+            var additionalData = JSON.parse(data.launchArgs);
+            var address = additionalData.address;
+            var alert = recreateAlert(additionalData);
+            this.triggerAlertClickEvent(address, alert);
+        } else {
+            var eventArgs = data.additionalData.pushNotificationReceivedEventArgs;
+            if (eventArgs.notificationType === 3) { // raw
+                var raw = eventArgs.rawNotification;
+                var additionalData = JSON.parse(raw.content);
+                var address = additionalData.address;
+                var changes = additionalData.changes;
+                if (changes) {
+                    this.triggerNotifyEvent(address, changes);
+                }
+            }
+        }
+    },
+
+    /**
+     * Called when activating app after running in background on Windows
+     *
+     * @param  {Object} context
+     */
+    handleActivation: function(context) {
+        var launchArgs = context.args;
+        if (launchArgs) {
+            var additionalData = JSON.parse(launchArgs);
+            var address = additionalData.address;
+            var alert = recreateAlert(additionalData);
+            this.triggerAlertClickEvent(address, alert);
+        }
     },
 
     /**
@@ -316,4 +437,25 @@ var getDeviceDetails = function() {
 
 function renderJSON(object, i) {
     return <pre key={i}>{JSON.stringify(object, undefined, 4)}</pre>;
+}
+
+function recreateAlert(additionalData) {
+    return {
+        title: '',
+        message: '',
+        type: additionalData.type,
+        schema: additionalData.schema,
+        notification_id: parseInt(additionalData.notification_id),
+        reaction_id: parseInt(additionalData.reaction_id),
+        story_id: parseInt(additionalData.story_id),
+        user_id: parseInt(additionalData.user_id),
+    };
+}
+
+function signalBackgroundProcessCompletion(notId) {
+    if (pushNotification && notId) {
+        if (cordova.platformId === 'ios') {
+            pushNotification.finish(notId);
+        }
+    }
 }

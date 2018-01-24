@@ -19,6 +19,10 @@ if (Folder.exists('trambar')) {
 }
 
 // rebuild client-side JS code
+Shell.chdir('trambar/common');
+Shell.run('npm install');
+Shell.chdir(__dirname);
+
 Shell.chdir('trambar/admin');
 Shell.run('npm install');
 Shell.run('npm run build');
