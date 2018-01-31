@@ -187,7 +187,6 @@ module.exports = React.createClass({
                 destroySession(session);
                 this.clearRecentSearches(address);
                 this.clearCachedObjects(address);
-                this.triggerExpirationEvent(session);
                 return null;
             });
         });
@@ -239,6 +238,7 @@ module.exports = React.createClass({
             var url = `${address}/session/`;
             var options = { responseType: 'json', contentType: 'json' };
             session.promise = HTTPRequest.fetch('GET', url, { handle }, options).then((res) => {
+                session.handle = handle;
                 _.assign(session, res.session);
                 if (session.token) {
                     this.triggerAuthorizationEvent(session);
@@ -342,8 +342,11 @@ module.exports = React.createClass({
     restoreSession: function(session) {
         // only if the session hasn't expired
         if (Moment(session.etime) > Moment()) {
-            var existing = getSession(session.address);
-            _.assign(existing, session);
+            // don't restore broken session
+            if (session.handle && session.token) {
+                var existing = getSession(session.address);
+                _.assign(existing, session);
+            }
         }
     },
 
@@ -937,15 +940,13 @@ module.exports = React.createClass({
         return HTTPRequest.fetch('POST', url, payload, options).then((result) => {
             return result;
         }).catch((err) => {
+            this.clearRecentSearches(address);
+            this.clearCachedObjects(address);
             if (err.statusCode === 401) {
                 destroySession(session);
-                this.clearRecentSearches(address);
-                this.clearCachedObjects(address);
                 this.triggerExpirationEvent(session);
                 this.triggerChangeEvent();
             } else if (err.statusCode == 403) {
-                this.clearRecentSearches(address);
-                this.clearCachedObjects(address);
                 this.triggerViolationEvent(address, schema);
                 this.triggerChangeEvent();
             }
@@ -998,7 +999,9 @@ module.exports = React.createClass({
             return Promise.resolve(false);
         }
         var query = getSearchQuery(search);
-        if (search.remote) {
+        if (search.remote || this.cleaningCache) {
+            // don't scan cache if query is designed as remote
+            // and if the cache is currently being cleaned
             search.results = [];
             return Promise.resolve(true);
         }
@@ -1065,7 +1068,11 @@ module.exports = React.createClass({
         if (!cache) {
             return Promise.resolve(0);
         }
-        return cache.clean({ address });
+        this.cleaningCache = true;
+        return cache.clean({ address }).then(() => {
+            this.cleaningCache = false;
+            console.log('Cache entries removed');
+        });
     },
 
     /**
