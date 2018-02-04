@@ -59,7 +59,7 @@ module.exports = [
             us: 'United States',
         },
         defaultCountry: 'us',
-        module: () => require.ensure([ 'locales/en' ], () => require('locales/en') ),
+        module: () => import('locales/en' /* webpackChunkName: "locale-en" */),
     },
     {
         name: 'Español',
@@ -195,7 +195,7 @@ module.exports = [
             no: 'Norge',
         },
         defaultCountry: 'no',
-        module: () => require.ensure([ 'locales/nb' ], () => require('locales/nb') ),
+        module: () => import('locales/nb' /* webpackChunkName: "locale-nb" */),
     },
     {
         name: 'Polski',
@@ -208,7 +208,7 @@ module.exports = [
             ua: 'Ukraina',
         },
         defaultCountry: 'pl',
-        module: () => require.ensure([ 'locales/pl' ], () => require('locales/pl') ),
+        module: () => import('locales/pl' /* webpackChunkName: "locale-pl" */),
     },
     {
         name: 'Português',
@@ -245,7 +245,7 @@ module.exports = [
             es: 'Эстония',
         },
         defaultCountry: 'ru',
-        module: () => require.ensure([ 'locales/ru' ], () => require('locales/ru') ),
+        module: () => import('locales/ru' /* webpackChunkName: "locale-ru" */),
     },
     {
         name: 'Srpski',
@@ -267,7 +267,7 @@ module.exports = [
             se: 'Ruotsi',
         },
         defaultCountry: 'fi',
-        module: () => require.ensure([ 'locales/fi' ], () => require('locales/fi') ),
+        module: () => import('locales/fi' /* webpackChunkName: "locale-fi" */),
     },
     {
         name: 'Slovenčina',
@@ -320,6 +320,6 @@ module.exports = [
             tw: '台灣',
         },
         defaultCountry: 'cn',
-        module: () => require.ensure([ 'locales/zh' ], () => require('locales/zh') ),
+        module: () => import('locales/zh' /* webpackChunkName: "locale-zh" */),
     },
 ];

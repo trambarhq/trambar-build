@@ -16,6 +16,7 @@ module.exports = React.createClass({
         initialReconnectionDelay: PropTypes.number,
         maximumReconnectionDelay: PropTypes.number,
         searching: PropTypes.bool,
+        hasConnection: PropTypes.bool,
 
         onConnect: PropTypes.func,
         onDisconnect: PropTypes.func,
@@ -25,7 +26,7 @@ module.exports = React.createClass({
 
     statics: {
         isAvailable: function() {
-            return true;
+            return (typeof(PushNotification) !== 'undefined');
         }
     },
 
@@ -81,14 +82,43 @@ module.exports = React.createClass({
     },
 
     /**
-     * Check if database queries have finished
+     * Wait for props.hasConnection to become true
+     *
+     * @return {Promise}
+     */
+    waitForConnectivity: function() {
+        if (this.props.hasConnection) {
+            return Promise.resolve();
+        } else {
+            if (!this.connectivityPromise) {
+                this.connectivityPromise = new Promise((resolve, reject) => {
+                    // call function in componentWillReceiveProps
+                    this.onConnectivity = () => {
+                        this.connectivityPromise = null;
+                        this.onConnectivity = null;
+                        resolve();
+                    };
+                });
+            }
+            return this.connectivityPromise;
+        }
+    },
+
+    /**
+     * Monitor prop changes
      *
      * @param  {Object} nextProps
      */
     componentWillReceiveProps: function(nextProps) {
+        // check if database queries have finished
         if (this.props.searching && !nextProps.searching) {
             if (this.onSearchIdling) {
                 this.onSearchIdling();
+            }
+        }
+        if (!this.props.hasConnection && nextProps.hasConnection) {
+            if (this.onConnectivity) {
+                this.onConnectivity();
             }
         }
     },
@@ -98,6 +128,9 @@ module.exports = React.createClass({
      */
     componentDidMount: function() {
         if (!pushNotification) {
+            if (typeof(PushNotification) === 'undefined') {
+                return;
+            }
             var params = {
                 android: {},
                 ios: {
@@ -184,11 +217,7 @@ module.exports = React.createClass({
                 details: details,
                 address: serverAddress,
             };
-            var options = {
-                responseType: 'json',
-                contentType: 'json',
-            };
-            return HTTPRequest.fetch('POST', url, payload, options).then((result) => {
+            return this.sendRegistration(url, payload).then((result) => {
                 if (attempt === this.registrationAttempt) {
                     this.registrationAttempt = null;
                     this.setState({ pushRelayResponse: result });
@@ -225,6 +254,24 @@ module.exports = React.createClass({
         });
         attempt.promise = Async.end();
         return attempt.promise;
+    },
+
+    /**
+     * Send registration to push relay
+     *
+     * @param  {String} url
+     * @param  {Object} payload
+     *
+     * @return {Object}
+     */
+    sendRegistration: function(url, payload) {
+        var options = {
+            responseType: 'json',
+            contentType: 'json',
+        };
+        return this.waitForConnectivity().then(() => {
+            return HTTPRequest.fetch('POST', url, payload, options);
+        });
     },
 
     /**
@@ -399,6 +446,7 @@ module.exports = React.createClass({
      */
     render: function() {
         var relayToken = _.get(this.state.pushRelayResponse, 'token');
+        var device = getDeviceDetails();
         return (
             <Diagnostics type="push-notifier">
                 <DiagnosticsSection label="Registration">
@@ -411,6 +459,10 @@ module.exports = React.createClass({
                 </DiagnosticsSection>
                 <DiagnosticsSection label="Recent messages">
                    {_.map(this.state.recentMessages, renderJSON)}
+                </DiagnosticsSection>
+                <DiagnosticsSection label="Device">
+                    <div>Manufacturer: {device.manufacturer}</div>
+                    <div>Model: {device.name}</div>
                 </DiagnosticsSection>
             </Diagnostics>
         );
@@ -428,7 +480,7 @@ var getDeviceDetails = function() {
     var device = window.device;
     if (device) {
         return {
-            manufacturer: _.capitalize(device.manufacturer),
+            manufacturer: device.manufacturer,
             name: device.model,
         };
     }

@@ -19,15 +19,14 @@ if (Folder.exists('trambar')) {
 }
 
 // rebuild client-side JS code
-Shell.chdir('trambar/common');
-Shell.run('npm install');
-Shell.chdir(__dirname);
-
+Folder.create('trambar/admin/www');
 Shell.chdir('trambar/admin');
 Shell.run('npm install');
 Shell.run('npm run build');
 Shell.chdir(__dirname);
 
+Folder.create('trambar/client/www');
+Folder.create('trambar/client/www-cordova');
 Shell.chdir('trambar/client');
 Shell.run('npm install');
 Shell.run('npm run build');
@@ -39,5 +38,7 @@ Folder.copy('trambar/admin/www', 'docker/nginx/admin');
 Folder.copy('trambar/client/www', 'docker/nginx/client');
 Folder.copy('trambar/backend', 'docker/node/backend');
 Folder.copy('trambar/common', 'docker/node/common');
-Folder.copy('trambar/client/www-cordova', 'cordova/trambar/www');
 File.copy('trambar/backend/package.json', 'docker/node/package.json');
+
+// copy files into Cordova folder
+Folder.copy('trambar/client/www-cordova', 'cordova/trambar/www');
