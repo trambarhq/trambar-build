@@ -1,5 +1,6 @@
 var _ = require('lodash');
 var React = require('react'), PropTypes = React.PropTypes;
+var ImageCropping = require('media/image-cropping');
 
 var Database = require('data/database');
 
@@ -8,6 +9,7 @@ module.exports = React.createClass({
     propTypes: {
         modes: PropTypes.object,
         serverAddress: PropTypes.string,
+        networkType: PropTypes.string,
         database: PropTypes.instanceOf(Database),
         onChange: PropTypes.func,
     },
@@ -83,11 +85,7 @@ module.exports = React.createClass({
 
         var filters = [];
         // apply clipping rect
-        var clip = res.clip;
-        if (params.hasOwnProperty('clip')) {
-            // override the one stored in res
-            clip = params.clip;
-        }
+        var clip = getClippingRect(res, params);
         if (clip) {
             // run number through Math.round() just in case error elsewhere left fractional pixel dimensions
             var rect = _.map([ clip.left, clip.top, clip.width, clip.height ], Math.round);
@@ -124,41 +122,27 @@ module.exports = React.createClass({
     },
 
     /**
-     * Return blob URL to local image file. URL might not be valid. Need to call
-     * BlobManager.get() to valididate the blob's existence on running system.
-     *
-     * @param  {Object} res
-     * @param  {Object} options
-     *
-     * @return {String|null}
-     */
-    getImageFile: function(res) {
-        switch(res.type) {
-            case 'video':
-            case 'audio':
-            case 'website':
-                return res.poster_file || null;
-            default:
-                return res.file || null;
-        }
-    },
-
-    /**
      * Return URL to video resource
      *
      * @param  {Object} res
-     * @param  {Object} options
+     * @param  {Object} params
      *
      * @return {String|null}
      */
-    getVideoURL: function(res, options) {
+    getVideoURL: function(res, params) {
         if (!res.url) {
             return null;
         }
+        if (!params) {
+            params = {};
+        }
         var url = `${this.props.serverAddress}${res.url}`;
-        if (options && options.version) {
-            var version = res.versions[options.version];
-            url += `.${options.version}.${version.format}`;
+        // pick suitable version unless specified otherwise
+        if (!params || !params.original) {
+            var version = this.pickVideoVersion(res, params);
+            if (version) {
+                url += `.${version.name}.${version.format}`;
+            }
         }
         return url;
     },
@@ -167,32 +151,133 @@ module.exports = React.createClass({
      * Return URL to audio resource
      *
      * @param  {Object} res
-     * @param  {Object} options
+     * @param  {Object} params
      *
      * @return {String|null}
      */
-    getAudioURL: function(res, options) {
-        return this.getVideoURL(res, options);
+    getAudioURL: function(res, params) {
+        if (!res.url) {
+            return null;
+        }
+        if (!params) {
+            params = {};
+        }
+        var url = `${this.props.serverAddress}${res.url}`;
+        if (!params || !params.original) {
+            var version = this.pickAudioVersion(res, params);
+            if (version) {
+                url += `.${version.name}.${version.format}`;
+            }
+        }
+        return url;
+    },
+
+    /**
+     * Return a resource's dimensions
+     *
+     * @param  {Object} res
+     * @param  {Object} params
+     *
+     * @return {Object}
+     */
+    getDimensions: function(res, params) {
+        if (!params) {
+            params = {};
+        }
+        var clip = getClippingRect(res, params);
+        var dims = {};
+        if (clip) {
+            // return the dimensions of the clipping rect
+            dims = {
+                width: clip.width,
+                height: clip.height,
+            }
+        } else {
+            dims = {
+                width: res.width,
+                height: res.height,
+            };
+            if (res.type === 'video') {
+                if (!params.original) {
+                    var version = this.pickVideoVersion(res, params);
+                    if (version && version.width && version.height) {
+                        dims.width = version.width;
+                        dims.height = version.height;
+                    }
+                }
+            }
+        }
+        return dims;
+    },
+
+    /**
+     * Get a version of the video with the highest bitrate that is below
+     * the available bandwidth
+     *
+     * @param  {Object} res
+     * @param  {Object} params
+     *
+     * @return {Object}
+     */
+    pickVideoVersion: function(res, params) {
+        if (params.hasOwnProperty('bitrate')) {
+            return _.find(res.resources, { bitrates: { video: params.bitrate }}) || null;
+        }
+        // both bitrate and bandwidths are in kbps
+        var bandwidth = parseInt(getBandwidth(this.props.networkType));
+        var bitrate = (version) => {
+            return parseInt(_.get(version, 'bitrates.video'));
+        };
+        var below = (version) => {
+            return (bitrate(version) <= bandwidth) ? 1 : 0;
+        };
+        var versions = _.orderBy(res.versions, [ below, bitrate ], [ 'desc', 'desc' ]);
+        return _.first(versions) || null;
+    },
+
+    /**
+     * Get a version of the video with the highest bitrate that is below
+     * the available bandwidth
+     *
+     * @param  {Object} res
+     * @param  {Object} params
+     *
+     * @return {Object|null}
+     */
+    pickAudioVersion: function(res, params) {
+        if (params.hasOwnProperty('bitrate')) {
+            return _.find(res.resources, { bitrates: { audio: params.bitrate }}) || null;
+        }
+        // both bitrate and bandwidths are in kbps
+        var bandwidth = parseInt(getBandwidth(this.props.networkType));
+        var bitrate = (version) => {
+            return parseInt(_.get(version, 'bitrates.audio'));
+        };
+        var below = (version) => {
+            return (bitrate(version) <= bandwidth) ? 1 : 0;
+        };
+        var versions = _.orderBy(res.versions, [ below, bitrate ], [ 'desc', 'desc' ]);
+        return _.first(versions) || null;
     },
 
     /**
      * Get URL of resource
      *
      * @param  {Object} res
-     * @param  {Object} options
+     * @param  {Object} params
      *
      * @return {Object}
      */
-    getURL(res, options) {
+    getURL(res, params) {
         switch (res.type) {
             case 'image':
-                return this.getImageURL(res, options);
+                return this.getImageURL(res, params);
             case 'video':
-                return this.getVideoURL(res, options);
+                return this.getVideoURL(res, params);
             case 'website':
                 return res.url;
             case 'audio':
-                return this.getAudioURL(res, options);
+                return this.getAudioURL(res, params);
         }
     },
 
@@ -332,6 +417,31 @@ function decodeLength(s) {
     }
 }
 
-function getProtocol(server) {
-    return (server === 'localhost') ? 'http' : 'http'
+function getBandwidth(networkType) {
+    switch (networkType) {
+        case 'cellular':
+        case '2g':
+            return '50kbps';
+        case '3g':
+            return '400kbps';
+        case '4g':
+            return '5000kbps';
+        case 'ethernet':
+        case 'wifi':
+        default:
+            return '10000kpbs';
+    }
+}
+
+function getClippingRect(res, params) {
+    var clip = res.clip;
+    if (params.hasOwnProperty('clip')) {
+        // override the one stored in res
+        clip = params.clip;
+    } else {
+        if (!clip) {
+            clip = ImageCropping.default(res.width, res.height);
+        }
+    }
+    return clip;
 }

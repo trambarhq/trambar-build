@@ -1,6 +1,5 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
-var Crypto = Promise.promisifyAll(require('crypto'));
 var Data = require('accessors/data');
 var HTTPError = require('errors/http-error');
 
@@ -67,6 +66,7 @@ module.exports = _.create(Data, {
                 etime timestamp,
                 PRIMARY KEY (id)
             );
+            CREATE INDEX ON ${table} (token) WHERE deleted = false;
         `;
         return db.execute(sql);
     },
@@ -135,11 +135,15 @@ module.exports = _.create(Data, {
                 object.action = row.action;
                 object.token = row.token;
                 object.user_id = row.user_id;
-                object.server_id = row.server_id;
-                object.options = row.options;
-                object.completion = row.completion;
                 object.etime = row.etime;
                 object.failed = row.failed;
+                object.completion = row.completion;
+                if (credentials.unrestricted) {
+                    object.server_id = row.server_id;
+                    object.options = row.options;
+                } else {
+                    delete object.details;
+                }
             });
             return objects;
         });
@@ -167,10 +171,7 @@ module.exports = _.create(Data, {
             if (taskReceived.user_id !== credentials.user.id) {
                 throw new HTTPError(403);
             }
-            return Crypto.randomBytesAsync(24).then((buffer) => {
-                taskReceived.token = buffer.toString('hex');
-                return taskReceived;
-            });
+            return taskReceived;
         });
     },
 

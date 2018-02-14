@@ -7,6 +7,7 @@ var HTTPRequest = require('transport/http-request');
 var HTTPError = require('errors/http-error');
 var LocalSearch = require('data/local-search');
 var SessionStartTime = require('data/session-start-time');
+var RemoteDataChange = require('data/remote-data-change');
 
 module.exports = React.createClass({
     displayName: 'RemoteDataSource',
@@ -15,6 +16,7 @@ module.exports = React.createClass({
         basePath: PropTypes.string,
         discoveryFlags: PropTypes.object,
         retrievalFlags: PropTypes.object,
+        committedResultsOnly: PropTypes.bool,
         hasConnection: PropTypes.bool,
         inForeground: PropTypes.bool,
         cache: PropTypes.object,
@@ -37,6 +39,7 @@ module.exports = React.createClass({
             refreshInterval: 15 * 60,   // 15 minutes
             basePath: '',
             hasConnection: true,
+            committedResultsOnly: true,
             inForeground: true,
         };
     },
@@ -520,13 +523,11 @@ module.exports = React.createClass({
                     throw new HTTPError(404);
                 }
             }
-            if (search.committed) {
-                // only return committed results
-                return search.result;
-            } else {
+            if (!this.props.committedResultsOnly && !search.committed) {
                 // apply changes that haven't been saved yet
-                return this.applyUncommittedChanges(search);
+                search = this.applyUncommittedChanges(search);
             }
+            return search.results;
         });
     },
 
@@ -536,10 +537,11 @@ module.exports = React.createClass({
      *
      * @param  {Object} location
      * @param  {Array<Object>} objects
+     * @param  {Object|undefined} options
      *
      * @return {Promise<Array<Object>>}
      */
-    save: function(location, objects) {
+    save: function(location, objects, options) {
         var startTime = getCurrentTime();
         var byComponent = _.get(location, 'by.constructor.displayName',)
         location = getSearchLocation(location);
@@ -551,7 +553,7 @@ module.exports = React.createClass({
             });
         } else {
             // storeRemoteObjects() will trigger change event
-            return this.storeRemoteObjects(location, objects).then((objects) => {
+            return this.storeRemoteObjects(location, objects, options).then((objects) => {
                 var endTime = getCurrentTime();
                 this.updateCachedObjects(location, objects);
                 this.updateRecentSearchResults(location, objects);
@@ -635,70 +637,146 @@ module.exports = React.createClass({
      * @param  {String} address
      * @param  {Object|undefined} changes
      *
-     * @return {Boolean}
+     * @return {Promise}
      */
     invalidate: function(address, changes) {
-        var changed = false;
-        if (changes) {
-            _.forIn(changes, (idList, name) => {
-                var parts = _.split(name, '.');
-                var location = {
-                    address: address,
-                    schema: parts[0],
-                    table: parts[1]
-                };
-                var relevantSearches = this.getRelevantRecentSearches(location);
-                _.each(relevantSearches, (search) => {
-                    var dirty = false;
-                    var expectedCount = getExpectedObjectCount(search);
-                    if (expectedCount === search.results.length) {
-                        // see if the ids show up in the results
-                        _.each(idList, (id) => {
-                            var index = _.sortedIndexBy(search.results, { id }, 'id');
-                            var object = search.results[index];
-                            if (object && object.id === id) {
-                                dirty = true;
-                                return false;
-                            }
-                        });
-                    } else {
-                        // we can't tell if new objects won't suddenly show up
-                        // in the search results
-                        dirty = true;
-                    }
-                    if (dirty) {
-                        search.dirty = true;
-                        changed = true;
-                    }
+        return this.reconcileChanges(address, changes).then(() => {
+            var changed = false;
+            if (changes) {
+                _.forIn(changes, (idList, name) => {
+                    var parts = _.split(name, '.');
+                    var location = {
+                        address: address,
+                        schema: parts[0],
+                        table: parts[1]
+                    };
+                    var relevantSearches = this.getRelevantRecentSearches(location);
+                    _.each(relevantSearches, (search) => {
+                        var dirty = false;
+                        var expectedCount = getExpectedObjectCount(search);
+                        if (expectedCount === search.results.length) {
+                            // see if the ids show up in the results
+                            _.each(idList, (id) => {
+                                var index = _.sortedIndexBy(search.results, { id }, 'id');
+                                var object = search.results[index];
+                                if (object && object.id === id) {
+                                    dirty = true;
+                                    return false;
+                                }
+                            });
+                        } else {
+                            // we can't tell if new objects won't suddenly show up
+                            // in the search results
+                            dirty = true;
+                        }
+                        if (dirty) {
+                            search.dirty = true;
+                            changed = true;
+                        }
+                    });
                 });
-            });
-        } else {
-            // invalidate all results originating from address
-            this.updateList('recentSearchResults', (before) => {
-                var after = _.slice(before);
-                _.each(after, (search) => {
-                    var searchLocation = getSearchLocation(search);
-                    if (!address || searchLocation.address === address) {
-                        search.dirty = true;
-                        changed = true;
-                    }
+            } else {
+                // invalidate all results originating from address
+                this.updateList('recentSearchResults', (before) => {
+                    var after = _.slice(before);
+                    _.each(after, (search) => {
+                        var searchLocation = getSearchLocation(search);
+                        if (!address || searchLocation.address === address) {
+                            search.dirty = true;
+                            changed = true;
+                        }
+                    });
+                    return after;
                 });
-                return after;
-            });
-        }
-        if (changed) {
-            // tell data consuming components to rerun their queries
-            // initially, they'd all get the data they had before
-            // another change event will occur if new objects are
-            // actually retrieved from the remote server
-            this.triggerChangeEvent();
-
-            // update recent searches that aren't being used currently
-            if (this.props.inForeground) {
-                this.schedulePrefetch(address);
             }
-        }
-        return changed;
+            if (changed) {
+                // tell data consuming components to rerun their queries
+                // initially, they'd all get the data they had before
+                // another change event will occur if new objects are
+                // actually retrieved from the remote server
+                this.triggerChangeEvent();
+
+                // update recent searches that aren't being used currently
+                if (this.props.inForeground) {
+                    this.schedulePrefetch(address);
+                }
+            }
+            return changed;
+        });
+    },
+
+    /**
+     * Adjust items in change queue to reflect data on server
+     *
+     * @param  {String|undefined} address
+     * @param  {Object|undefined} changes
+     *
+     * @return {Promise}
+     */
+    reconcileChanges: function(address, changes) {
+        return Promise.each(this.state.changeQueue, (change) => {
+            var affectedIds;
+            if (!changes) {
+                if (!address || change.location.address === address) {
+                    // all the changed objects are affected (unless they're new)
+                    affectedIds = _.filter(_.map(change.objects, 'id'), (id) => {
+                        return (id >= 1);
+                    });
+                }
+            } else {
+                if (change.location.address === address) {
+                    if (!change.dispatched) {
+                        var name = `${change.location.schema}.${change.location.table}`;
+                        var idList = changes[name];
+                        if (idList) {
+                            // look for changed objects that were changed remotely
+                            affectedIds = _.filter(idList, (id, index) => {
+                                var index = _.findIndex(change.objects, { id });
+                                if (index !== -1) {
+                                    if (!change.removed[index]) {
+                                        return true;
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            if (_.isEmpty(affectedIds)) {
+                return null;
+            }
+            if (!change.onConflict) {
+                // can't deconflict--remove the affect objects from change queue
+                for (var i = 0; i < change.removed.length; i++) {
+                    change.removed[i] = true;
+                }
+                change.cancel();
+                return null;
+            }
+            // load the (possibly) new objects
+            return this.retrieveRemoteObjects(change.location, affectedIds, true).then((remoteObjects) => {
+                _.each(affectedIds, (id) => {
+                    var local = _.find(change.objects, { id });
+                    var remote = _.find(remoteObjects, { id });
+                    var preserve = false;
+                    change.onConflict({
+                        type: 'conflict',
+                        target: this,
+                        local,
+                        remote,
+                        preventDefault: () => { preserve = true }
+                    });
+                    if (!preserve) {
+                        var index = _.indexOf(change.objects, local);
+                        change.removed[index] = true;
+                    }
+                });
+                if (_.every(change.removed)) {
+                    change.cancel();
+                }
+                return null;
+            });
+        });
     },
 
     /**
@@ -811,25 +889,6 @@ module.exports = React.createClass({
     },
 
     /**
-     * Wait for props.hasConnection to become true
-     *
-     * @param  {Object} change
-     *
-     * @return {Promise}
-     */
-    waitForConnectivity: function(change) {
-        if (this.props.hasConnection) {
-            return Promise.resolve();
-        } else {
-            return new Promise((resolve, reject) => {
-                // save function so we can call it in componentDidUpdate()
-                change.resolve = resolve;
-                change.reject = reject;
-            });
-        }
-    },
-
-    /**
      * Look for a recent search that has the same criteria
      *
      * @param  {Object} query
@@ -894,7 +953,7 @@ module.exports = React.createClass({
             }
             if (!_.isEmpty(idsUpdated)) {
                 // retrieve the updated (or new) objects from server
-                return this.retrieveRemoteObjects(location, idsUpdated).then((retrieval) => {
+                return this.retrieveRemoteObjects(location, idsUpdated, background).then((retrieval) => {
                     // then add them to the list and remove missing ones
                     var newObjects = retrieval;
                     var newResults = insertObjects(search.results, newObjects);
@@ -956,11 +1015,12 @@ module.exports = React.createClass({
      *
      * @param  {Object} location
      * @param  {Array<Number>} ids
+     * @param  {Boolean} background
      *
      * @return {Promise<Array<Object>>}
      */
-    retrieveRemoteObjects: function(location, ids) {
-        return this.performRemoteAction(location, 'retrieval', { ids });
+    retrieveRemoteObjects: function(location, ids, background) {
+        return this.performRemoteAction(location, 'retrieval', { ids, background });
     },
 
     /**
@@ -968,124 +1028,52 @@ module.exports = React.createClass({
      *
      * @param  {Object} location
      * @param  {Array<Object>} objects
+     * @param  {Object|undefined} options
      *
      * @return {Promise<Array<Object>>}
      */
-    storeRemoteObjects: function(location, objects) {
-        try {
-            // pluck objects from earlier operations
-            objects = this.mergePreviousChanges(location, objects);
-        } catch (err) {
-            return Promise.reject(err);
-        }
-        var change = this.queueChange(location, objects);
-        if (_.isEmpty(change.deliverables)) {
-            // a no-op
-            return Promise.resolve([]);
-        }
-        return this.waitForConnectivity(change).then(() => {
-            // return empty set if change was superceded
-            if (change.canceled) {
-                console.log('canceled')
-                return [];
-            }
-            var objects = change.deliverables;
-            change.dispatched = true;
+    storeRemoteObjects: function(location, objects, options) {
+        var change = new RemoteDataChange(location, objects, options);
+        _.each(this.changeQueue, (earlierOp) => {
+            change.merge(earlierOp);
+        });
+        change.onDispatch = (change) => {
+            var objects = change.deliverables();
+            var location = change.location;
             return this.performRemoteAction(location, 'storage', { objects }).then((objects) => {
                 return objects;
             }).finally(() => {
                 this.removeChange(change);
             });
-        });
+        };
+        change.onCancel = (change) => {
+            this.removeChange(change);
+            return Promise.resolve();
+        };
+        this.queueChange(change);
+        if (this.props.hasConnection) {
+            // send it if we've connectivity
+            change.dispatch();
+        }
+        return change.promise;
     },
 
-    queueChange: function(location, objects) {
-        var placeholders = _.map(objects, (object) => {
-            if (!object.uncommitted) {
-                object = _.clone(object);
-                if (!object.id) {
-                    // assign a temporary id so we can find the object again
-                    object.id = getTemporaryId();
-                }
-                object.uncomitted = true;
-            }
-            return object;
-        });
-        var deliverables = _.map(objects, (object) => {
-            if (object.uncomitted) {
-                // strip out special properties
-                if (object.id < 1) {
-                    object = _.omit(object, 'id', 'uncomitted');
-                } else {
-                    object = _.omit(object, 'uncomitted')
-                }
-            }
-            return object;
-        });
-        // remove delete request for objects that were never saved in the first place
-        deliverables = _.filter(deliverables, (object) => {
-            if (object.deleted && !object.id) {
-                return false;
-            }
-            return true;
-        });
-        // add change to queue
-        var change = {
-            deliverables,
-            placeholders,
-            location,
-            dispatched: false,
-            canceled: false,
-        };
+    /**
+     * Add an entry to the change queue
+     *
+     * @param  {RemoteDataChange} change
+     */
+    queueChange: function(change) {
         this.updateList('changeQueue', (before) => {
             return _.concat(before, change);
         });
-        return change;
     },
 
-    mergePreviousChanges: function(location, objects) {
-        var changed = false;
-        objects = _.slice(objects);
-        _.each(this.changeQueue, (earlierOp) => {
-            if (_.isEqual(earlierOp.location, location)) {
-                _.each(objects, (object, i) => {
-                    var index = _.findIndex(earlierOp.placeholders, { id: object.id });
-                    if (index !== -1) {
-                        if (earlierOp.dispatched) {
-                            // can't alter the operation once it's dispatched
-                            throw new HTTPError(409);
-                        }
-                        // merge in changes from earlier op
-                        objects[i] = _.extend(_.clone(earlierOp.deliverables[index]), object);
-                        earlierOp.placeholders.splice(index, 1);
-                        earlierOp.deliverables.splice(index, 1);
-                        changed = true;
-                    }
-                });
-            }
-        });
-        if (changed) {
-            // cancel the changes that have become no-op's
-            this.updateList('changeQueue', (before) => {
-                var after = _.filter(before, (change) => {
-                    if (change.deliverables.length === 0) {
-                        change.canceled = true;
-                        if (change.resolve) {
-                            var f = change.resolve;
-                            change.resolve = null;
-                            change.reject = null;
-                            f();
-                        }
-                        return false;
-                    }
-                    return true;
-                });
-                return after;
-            });
-        }
-        return objects;
-    },
-
+    /**
+     * Remove an entry from the change queue
+     *
+     * @param  {RemoteDataChange} change
+     */
     removeChange: function(change) {
         this.updateList('changeQueue', (before) => {
             return _.without(before, change);
@@ -1093,46 +1081,22 @@ module.exports = React.createClass({
     },
 
     /**
-     * Apply uncomitted changes to search results
+     * Apply uncommitted changes to search results
      *
      * @param  {Object} search
      *
-     * @return {Array<Object>}
+     * @return {Object}
      */
     applyUncommittedChanges: function(search) {
-        if (_.isEmpty(this.changeQueue)) {
-            return search.results;
+        if (!_.isEmpty(this.changeQueue)) {
+            var includeDeleted = _.get(this.props.discoveryFlags, 'include_deleted');
+            search = _.clone(search);
+            search.results = _.slice(search.results);
+            _.each(this.changeQueue, (change) => {
+                change.apply(search, includeDeleted);
+            });
         }
-        var objects = _.slice(search.results);
-        var location = getSearchLocation(search);
-        var includeDeleted = _.get(this.props.discoveryFlags, 'include_deleted');
-        _.each(this.changeQueue, (change) => {
-            if (_.isEqual(change.location, location)) {
-                _.each(change.placeholders, (placeholder) => {
-                    var index = _.findIndex(objects, { id: placeholder.id });
-                    if (index !== -1) {
-                        if (placeholder.deleted && !includeDeleted) {
-                            objects.splice(index, 1);
-                        } else {
-                            var match = LocalSearch.match(search.table, placeholder, search.criteria);
-                            if (match) {
-                                objects[index] = _.extend(_.clone(objects[index]), placeholder);
-                            } else {
-                                objects.splice(index, 1);
-                            }
-                        }
-                    } else {
-                        if (!(placeholder.deleted && !includeDeleted)) {
-                            var match = LocalSearch.match(search.table, placeholder, search.criteria);
-                            if (match) {
-                                objects.push(placeholder);
-                            }
-                        }
-                    }
-                });
-            }
-        })
-        return objects;
+        return search;
     },
 
     /**
@@ -1160,7 +1124,7 @@ module.exports = React.createClass({
         var session = getSession(address);
         payload = _.clone(payload) || {};
         if (session.token) {
-            payload.token = session.token;
+            payload.auth_token = session.token;
         }
         if (action === 'retrieval' || action === 'storage') {
             _.assign(payload, this.props.retrievalFlags);
@@ -1336,7 +1300,7 @@ module.exports = React.createClass({
                 var target = search.results[index];
                 var present = (target && target.id === object.id);
                 var match = LocalSearch.match(search.table, object, search.criteria);
-                if (match) {
+                if (match || present) {
                     // create new array so memoized functions won't return old results
                     if (!changed) {
                         search.results = _.slice(search.results);
@@ -1491,14 +1455,12 @@ module.exports = React.createClass({
             }, 50);
         }
         if (!prevProps.hasConnection && this.props.hasConnection) {
-            // tell pending operations to proceed
-            _.each(this.changeQueue, (change) => {
-                if (change.resolve) {
-                    var f = change.resolve;
-                    change.resolve = null;
-                    change.reject = null;
-                    f();
-                }
+            // reconcile changes and invalidate all searches
+            this.invalidate().then(() => {
+                // send pending changes
+                _.each(this.changeQueue, (change) => {
+                    change.dispatch();
+                });
             });
         }
     },

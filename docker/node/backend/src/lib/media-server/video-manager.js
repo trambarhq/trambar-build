@@ -1,36 +1,66 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var FS = Promise.promisifyAll(require('fs'));
+var Path = require('path');
+var Readline = require('readline');
 var ChildProcess = require('child_process');
 var Crypto = require('crypto');
 
 var CacheFolders = require('media-server/cache-folders');
 var FileManager = require('media-server/file-manager');
+var ImageManager = require('media-server/image-manager');
 
 module.exports = {
-    createJobId,
     startTranscodingJob,
     findTranscodingJob,
     transcodeSegment,
     endTranscodingJob,
     awaitTranscodingJob,
+    requestPosterGeneration,
+    awaitPosterGeneration,
 };
 
-/**
- * Create a random job id
- *
- * @return {String}
- */
-function createJobId() {
-    return new Promise((resolve, reject) => {
-        Crypto.randomBytes(16, function(err, buffer) {
-            var token = buffer.toString('hex');
-            resolve(token);
-        });
-    });
-}
-
 var transcodingJobs = [];
+var encodingProfiles = [
+    {
+        type: 'video',
+        name: '1000kbps',
+        videoBitrate: 1000 * 1000,
+        audioBitrate: 128 * 1000,
+        audioChannels: 2,
+        format: 'mp4',
+        maximum: {
+            width: 896,
+            height: 896
+        },
+    },
+    {
+        type: 'video',
+        name: '500kbps',
+        videoBitrate: 500 * 1000,
+        audioBitrate: 64 * 1000,
+        audioChannels: 1,
+        format: 'mp4',
+        maximum: {
+            width: 640,
+            height: 640,
+        },
+    },
+    {
+        type: 'audio',
+        name: '128kbps',
+        audioChannels: 2,
+        audioBitrate: 128  * 1000,
+        format: 'mp3',
+    },
+    {
+        type: 'audio',
+        name: '32kbps',
+        audioChannels: 1,
+        audioBitrate: 32  * 1000,
+        format: 'mp3',
+    },
+];
 
 /**
  * Find a transcoding job by id
@@ -40,7 +70,7 @@ var transcodingJobs = [];
  * @return {Object|null}
  */
 function findTranscodingJob(jobId) {
-    return _.find(transcodingJobs, { jobId }) || null;
+    return _.find(transcodingJobs, { id: jobId }) || null;
 }
 
 /**
@@ -48,147 +78,202 @@ function findTranscodingJob(jobId) {
  *
  * @param  {String|null} srcPath
  * @param  {String} type
- * @param  {String|null} streamId
+ * @param  {String} jobId
  *
- * @return {Object}
+ * @return {Promise<Object>}
  */
 function startTranscodingJob(srcPath, type, jobId) {
+    var profiles = _.filter(encodingProfiles, { type });
     var job = {
-        jobId,
-        type,
-        streaming: !srcPath,
+        id: jobId,
+        type: type,
         destination: CacheFolders[type],
+        streaming: !srcPath,
+        inputFile: { path: srcPath },
+        outputFiles: [],
+        promise: null,
+        progress: 0,
+        onProgress: null,
     };
-    if (type === 'video') {
-        job.profiles = {
-            '896x896': {
-                videoBitrate: 1000 * 1000,
-                videoScaling: {
-                    width: 896,
-                    height: 896
-                },
-                audioBitrate: 128 * 1000,
-                audioChannels: 2,
-                format: 'mp4',
-            },
-            '640x640': {
-                videoBitrate: 500 * 1000,
-                videoScaling: {
-                    width: 640,
-                    height: 640,
-                },
-                audioBitrate: 64 * 1000,
-                audioChannels: 1,
-                format: 'mp4',
-            },
-        };
-    } else if (type === 'audio') {
-        job.profiles = {
-            '128kbps': {
-                audioBitrate: 128  * 1000,
-                format: 'mp3',
-            },
-        };
-    }
-
-    // launch instances of FFmpeg to create files for various profiles
-    job.outputFiles = _.mapValues(job.profiles, (profile, name) => {
-        return `${job.destination}/${jobId}.${name}.${profile.format}`;
-    });
-    job.processes = _.mapValues(job.outputFiles, (dstPath, name) => {
-        return spawnFFmpeg(srcPath, dstPath, job.profiles[name]);
-    });
-    // create promises that resolve when FFmpeg exits
-    var promises = _.mapValues(job.processes, (childProcess) => {
-        return new Promise((resolve, reject) => {
-            childProcess.on('exit', (code, signal) => {
-                if (code >= 0) {
-                    resolve()
-                } else {
-                    reject(new Error(`Process exited with error code ${code}`));
+    return Promise.each(profiles, (profile) => {
+        // see if the destination file exists already
+        var dstPath = `${job.destination}/${job.id}.${profile.name}.${profile.format}`;
+        var outputFile = _.clone(profile);
+        outputFile.path = dstPath;
+        job.outputFiles.push(outputFile);
+        return FS.lstatAsync(dstPath).then(() => {
+            // get its duration and dimensions
+            return probeFile(outputFile).then(() => {
+                if (!outputFile.duration) {
+                    throw new Error('Existing file seems to be empty');
                 }
             });
-            childProcess.on('error', (err) => {
-                console.error(err);
-                reject(err)
-            });
+        }).catch((err) => {
+            // launch an instance of FFmpeg to create the file
+            return spawnFFmpeg(srcPath, dstPath, profile);
+        }).then((ffmpeg) => {
+            outputFile.ffmpeg = ffmpeg;
         });
+    }).then(() => {
+        // create a promise that fulfills when all instances of ffmpeg have exited
+        job.promise = Promise.map(job.outputFiles, (outputFile) => {
+            var ffmpeg = outputFile.ffmpeg;
+            if (ffmpeg) {
+                // wait for ffmpeg to exit
+                return waitForExit(ffmpeg).then(() => {
+                    // get the generated file's dimensions
+                    return probeFile(outputFile);
+                });
+            }
+        });
+
+        if (job.streaming) {
+            // add queue and other variables needed for streaming in video
+            job.queue = [];
+            job.working = false;
+            job.closed = false;
+            job.totalByteCount = 0;
+            job.processedByteCount = 0;
+            job.lastProgressTime = 0;
+
+            // create write stream to save original
+            job.inputFile.path = `${job.destination}/${job.id}`;
+            job.writeStream = FS.createWriteStream(job.inputFile.path);
+            var filePromise = new Promise((resolve, reject) => {
+                job.writeStream.once('error', reject);
+                job.writeStream.once('finish', resolve);
+            });
+
+            // calculate MD5 hash along the way
+            job.md5Hash = Crypto.createHash('md5');
+            var hashPromise = new Promise((resolve, reject) => {
+                job.md5Hash.once('readable', () => {
+                    resolve(job.md5Hash.read().toString('hex'));
+                });
+            });
+
+            // wait for processes to finish, then rename the files, using the
+            // MD5 hash of the original
+            job.promise = job.promise.then(() => {
+                return Promise.join(hashPromise, filePromise, (hash) => {
+                    job.inputFile.hash = hash;
+                    return probeFile(job.inputFile).then(() => {
+                        var files = _.concat(job.inputFile, job.outputFiles);
+                        return Promise.map(files, (file) => {
+                            return renameFile(file, job.id, hash);
+                        });
+                    });
+                });
+            });
+        } else {
+            // track progress by reading ffmpeg's stderr output
+            // we'll need the duration of the source file
+            job.totalDuration = 0;
+            probeFile(job.inputFile).then(() => {
+                job.totalDuration = job.inputFile.duration;
+
+                var re = /out_time_ms=(.*)/;
+                _.each(job.outputFiles, (outputFile) => {
+                    if (outputFile.ffmpeg) {
+                        outputFile.processedDuration = 0;
+
+                        var rl = Readline.createInterface({ input: outputFile.ffmpeg.stdout });
+                        rl.on('line', (line) => {
+                            var m = re.exec(line);
+                            if (m) {
+                                var outTime = parseInt(m[1]);
+                                outputFile.processedDuration = outTime / 1000;
+                                calculateProgress(job);
+                            }
+                        });
+                    }
+                });
+            });
+        }
+
+        transcodingJobs.push(job);
+        return job;
     });
-    job.promise = Promise.props(promises);
+}
 
-    if (job.streaming) {
-        // add queue and other variables needed for streaming in video
-        job.queue = [];
-        job.working = false;
-        job.closed = false;
-        job.progress = 0;
-        job.totalByteCount = 0;
-        job.processedByteCount = 0;
-        job.lastProgressTime = null;
-        job.onProgress = null;
+/**
+ * Scan files and set their the duration and dimensions
+ *
+ * @param  {Array<Object>} files
+ *
+ * @return {Promise}
+ */
+function probeFile(file) {
+    return probeMediaFile(file.path).then((info) => {
+        _.assign(file, info);
+    });
+}
 
-        // create write stream to save original
-        job.originalFile = `${job.destination}/${jobId}`;
-        job.writeStream = FS.createWriteStream(job.originalFile);
-        var filePromise = new Promise((resolve, reject) => {
-            job.writeStream.once('error', reject);
-            job.writeStream.once('finish', resolve);
-        });
-
-        // calculate MD5 hash along the way
-        job.md5Hash = Crypto.createHash('md5');
-        var hashPromise = new Promise((resolve, reject) => {
-            job.md5Hash.once('readable', () => {
-                resolve(job.md5Hash.read().toString('hex'));
-            });
-        });
-
-        job.promise = job.promise.then(() => {
-            // rename the files once we have the MD5 hash
-            return Promise.join(hashPromise, filePromise, (hash) => {
-                var originalFile = _.replace(job.originalFile, job.jobId, hash);
-                var outputFiles = _.mapValues(job.outputFiles, (outputFile) => {
-                    return _.replace(outputFile, job.jobId, hash);
-                });
-                var srcFiles = _.concat(job.originalFile, _.values(job.outputFiles));
-                var dstFiles = _.concat(originalFile, _.values(outputFiles));
-                return Promise.map(srcFiles, (srcFile, index) => {
-                    return FileManager.moveFile(srcFile, dstFiles[index]);
-                }).then(() => {
-                    job.originalFile = originalFile;
-                    job.outputFiles = outputFiles;
-                    job.originalHash = hash;
-                });
-            });
-        });
-    }
-
-    transcodingJobs.push(job);
-    return job;
+/**
+ * Change temporary filename to permanent ones
+ *
+ * @param  {Object} files
+ * @param  {String} match
+ * @param  {String} replacement
+ *
+ * @return {Promise}
+ */
+function renameFile(file, match, replacement) {
+    var tempPath = file.path;
+    var permPath = _.replace(tempPath, match, replacement);
+    return FileManager.moveFile(tempPath, permPath).then(() => {
+        file.path = permPath;
+    });
 }
 
 /**
  * Wait for transcoding job to finish
  *
  * @param  {Object} job
- * @return {Promise<Object>}
+ *
+ * @return {Promise}
  */
 function awaitTranscodingJob(job) {
-    return job.promise.return(job);
+    return job.promise;
+}
+
+/**
+ * Wait for poster generation to finish
+ *
+ * @param  {Object} job
+ *
+ * @return {Promise}
+ */
+function awaitPosterGeneration(job) {
+    if (!job.posterFile) {
+        throw new Error('Poster generation not request');
+    }
+    return job.posterFile.promise;
 }
 
 /**
  * Add a file to the transcode queue
  *
  * @param  {Object} job
- * @param  {ReadableStream} inputStream
- * @param  {Number} segmentSize
+ * @param  {Object} file
  */
-function transcodeSegment(job, inputStream, segmentSize) {
-    job.queue.push(inputStream);
-    job.totalByteCount += segmentSize;
-    if (!job.working) {
-        processNextStreamSegment(job);
+function transcodeSegment(job, file) {
+    if (!job.closed) {
+        var inputStream = FS.createReadStream(file.path);
+        job.queue.push(inputStream);
+        job.totalByteCount += file.size;
+        if (!job.working) {
+            processNextStreamSegment(job);
+        }
+    }
+    if (job.posterFile && job.posterFile.ffmpeg) {
+        // handle poster generation in separate quene so process isn't slowed
+        // down by back pressure from transcoding
+        var inputStream = FS.createReadStream(file.path);
+        job.posterQueue.push(inputStream);
+        if (!job.workingOnPoster) {
+            processNextStreamSegmentForPoster(job);
+        }
     }
 }
 
@@ -203,6 +288,18 @@ function endTranscodingJob(job) {
     if (!job.working) {
         processNextStreamSegment(job);
     }
+
+    if (job.posterFile && job.posterFile.ffmpeg) {
+        if (!job.workingOnPoster) {
+            processNextStreamSegmentForPoster(job);
+        }
+    } else {
+        // close the streams that aren't used
+        var inputStream;
+        while (inputStream = job.posterQueue.shift()) {
+            inputStream.close();
+        }
+    }
 }
 
 /**
@@ -214,20 +311,25 @@ function processNextStreamSegment(job) {
     var inputStream = job.queue.shift();
     if (inputStream) {
         job.working = true;
-        // save the original
+        // save contents of the original file
         inputStream.pipe(job.writeStream, { end: false });
         // calculate MD5
         inputStream.pipe(job.md5Hash, { end: false });
         // pipe stream to stdin of FFmpeg, leaving stdin open afterward
-        _.each(job.processes, (childProcess) => {
-            inputStream.pipe(childProcess.stdin, { end: false });
+        // (so FFmpeg doesn't exit)
+        _.each(job.outputFiles, (outputFile) => {
+            if (outputFile.ffmpeg) {
+                inputStream.pipe(outputFile.ffmpeg.stdin, { end: false });
+            }
         });
+        // calculate progress based on how much data has been pulled from
+        // input stream
         inputStream.on('data', (chunk) => {
             job.processedByteCount += chunk.length;
             calculateProgress(job);
         });
+        // once this stream finishes, move on to the next segment
         inputStream.once('end', () => {
-            // done, try processing the next segment
             processNextStreamSegment(job);
         });
     } else {
@@ -237,10 +339,35 @@ function processNextStreamSegment(job) {
             job.writeStream.end();
             job.md5Hash.end();
             // close stdin of FFmpeg so it'd exit after processing remaining data
-            _.each(job.processes, (childProcess) => {
-                childProcess.stdin.end();
+            _.each(job.outputFiles, (outputFile) => {
+                if (outputFile.ffmpeg) {
+                    outputFile.ffmpeg.stdin.end();
+                    outputFile.ffmpeg = null;
+                }
             });
             calculateProgress(job);
+        }
+    }
+}
+
+/**
+ * Get the next stream segment and pipe it to FFmpeg
+ *
+ * @param  {Object} job
+ */
+function processNextStreamSegmentForPoster(job) {
+    var inputStream = job.posterQueue.shift();
+    if (inputStream) {
+        job.workingOnPoster = true;
+        inputStream.pipe(job.posterFile.ffmpeg.stdin, { end: false });
+        inputStream.once('end', () => {
+            processNextStreamSegmentForPoster(job);
+        });
+    } else {
+        job.workingOnPoster = false;
+        if (job.closed) {
+            job.posterFile.ffmpeg.stdin.end();
+            job.posterFile.ffmpeg = null;
         }
     }
 }
@@ -251,28 +378,111 @@ function processNextStreamSegment(job) {
  * @param  {Object} job
  */
 function calculateProgress(job) {
-    if (job.closed) {
-        // uploading is complete--we know the final file size
-        if (job.totalByteCount > 0) {
-            var progress = Math.round(job.processedByteCount / job.totalByteCount * 100);
-            if (progress === 100 && job.working) {
-                // there's still some work to be done
-                progress = 99;
+    var progress;
+    if (job.streaming) {
+        // don't perform calculation when final size isn't known
+        if (job.closed) {
+            progress = Math.round(job.processedByteCount / job.totalByteCount * 100);
+        }
+    } else {
+        var durations = [];
+        _.each(job.outputFiles, (outputFile) => {
+            if (outputFile.ffmpeg) {
+                durations.push(outputFile.processedDuration);
             }
-            if (job.progress !== progress) {
-                job.progress = progress;
-                if (job.onProgress) {
-                    // don't report that frequently
-                    var now = new Date;
-                    var elapsed = (job.lastProgressTime) ? now - job.lastProgressTime : Infinity;
-                    if (elapsed > 2000 || progress === 100) {
-                        job.onProgress({ type: 'progress', target: job });
-                        job.lastProgressTime = now;
-                    }
+        });
+        progress = Math.round(_.min(durations) / job.totalDuration * 100);
+    }
+    if (progress) {
+        if (progress === 100 && job.working) {
+            // there's still some work to be done
+            progress = 99;
+        }
+        if (job.progress !== progress) {
+            job.progress = progress;
+            if (job.onProgress) {
+                // don't report that frequently
+                var now = new Date;
+                var elapsed = (job.lastProgressTime) ? now - job.lastProgressTime : Infinity;
+                if (elapsed > 2000 || progress === 100) {
+                    job.onProgress({ type: 'progress', target: job });
+                    job.lastProgressTime = now;
                 }
             }
         }
     }
+}
+
+/**
+ * Add poster generation to job
+ *
+ * @param  {Job} job
+ *
+ * @return {Promise<Object>}
+ */
+function requestPosterGeneration(job) {
+    var srcPath = (job.streaming) ? null : job.inputFile.path;
+    var dstPath = `${job.destination}/${job.id}.screencaps/%d.jpg`;
+    var dstFolder = Path.dirname(dstPath);
+    return FS.mkdirAsync(dstFolder).catch((err) => {
+        if (err.code !== 'EEXIST') {
+            throw err;
+        }
+    }).then(() => {
+        var profile = {
+            screenCap: {
+                quality: 2,
+                count: 3
+            }
+        };
+        var ffmpeg = spawnFFmpeg(srcPath, dstPath, profile);
+        if (ffmpeg.stdin) {
+            // we expect ffmpeg to drop the connection as soon as it has enough data
+            ffmpeg.stdin.on('error', (err) => {
+                job.posterFile.ffmpeg = null;
+            });
+        }
+        job.posterQueue = [];
+        job.posterFile = {};
+        job.posterFile.ffmpeg = ffmpeg;
+        job.posterFile.promise = waitForExit(ffmpeg).then(() => {
+            // scan dstFolder for files
+            return FS.readdirAsync(dstFolder).then((names) => {
+                // find the largest of them (most interesting, hopefully)
+                return Promise.reduce(names, (selected, name) => {
+                    var path = `${dstFolder}/${name}`;
+                    return FS.statAsync(path).then((stat) => {
+                        if (!selected || selected.size < stat.size) {
+                            return { path, size: stat.size };
+                        } else {
+                            return selected;
+                        }
+                    });
+                }, null);
+            }).then((file) => {
+                if (file) {
+                    // move file into image cache folder
+                    return ImageManager.getImageMetadata(file.path).then((meta) => {
+                        return FileManager.preserveFile(file, null, CacheFolders.image).then((imagePath) => {
+                            _.assign(job.posterFile, {
+                                path: imagePath,
+                                width: meta.width,
+                                height: meta.height,
+                            });
+                        });
+                    });
+                }
+            });
+        }).finally(() => {
+            // delete the folder, along with any remaining files
+            return FS.readdirAsync(dstFolder).each((name) => {
+                return FS.unlinkAsync(`${dstFolder}/${name}`).catch((err) => {});
+            }).then(() => {
+                return FS.unlinkAsync(dstFolder).catch((err) => {});
+            })
+        });
+        return null;
+    });
 }
 
 /**
@@ -286,46 +496,117 @@ function calculateProgress(job) {
  */
 function spawnFFmpeg(srcPath, dstPath, profile) {
     var cmd = 'ffmpeg';
-    var inputArgs = [], input = Array.prototype.push.bind(inputArgs);
-    var outputArgs = [], output = Array.prototype.push.bind(outputArgs);
+    var args = [], arg = Array.prototype.push.bind(args);
     var options = {
         stdio: [ 'inherit', 'inherit', 'inherit' ]
     };
 
+    arg('-y');
+    arg('-hide_banner');
+    arg('-loglevel', 'error');
+
     if (srcPath) {
-        input('-i', srcPath);
+        arg('-i', srcPath);
+        // receive progress from stdout
+        arg('-progress', '-');
+        options.stdio[1] = 'pipe';
     } else {
         // get input from stdin
-        input('-i', 'pipe:0');
+        arg('-i', 'pipe:0');
         options.stdio[0] = 'pipe';
     }
 
     // add output options
     if (profile.videoBitrate) {
-        output('-b:v', profile.videoBitrate);
+        arg('-b:v', profile.videoBitrate);
     }
     if (profile.audioBitrate) {
-        output('-b:a', profile.audioBitrate);
+        arg('-b:a', profile.audioBitrate);
     }
     if (profile.frameRate) {
-        output('-r', profile.frameRate);
+        arg('-r', profile.frameRate);
     }
     if (profile.audioChannels) {
-        output('-ac', profile.audioChannels);
+        arg('-ac', profile.audioChannels);
     }
-    if (profile.videoScaling) {
-        var w = profile.videoScaling.width;
-        var h = profile.videoScaling.height;
+    if (profile.maximum) {
+        var w = profile.maximum.width;
+        var h = profile.maximum.height;
+        var a = _.round(w / h, 3);
         // if actual aspect ratio is great than w/h, scale = width:-2
         // if actual aspect ratio is less than w/h, scale = -2:height
         //
         // -2 ensures the automatic dimension is divisible by 2
-        var scale = `'if(gt(a,${w}/${h}),${w},-2)':'if(gt(a,${w}/${h}),-2,${h})'`;
-        output('-vf', `scale=${scale}`);
+        var scale = `'if(gt(a,${a}),min(iw,${w}),-2)':'if(gt(a,${a}),-2,min(ih,${h}))'`;
+        arg('-vf', `scale=${scale}`);
     }
-    output(dstPath);
+    if (profile.screenCap) {
+        var count = profile.screenCap.count || 1;
+        var quality = profile.screenCap.quality || 5;
+        arg('-vf', `select='eq(pict_type,I)'`);
+        arg('-vsync', 'vfr');
+        arg('-vframes', count);
+        arg('-qscale:v', quality);
+    }
+    arg(dstPath);
 
-    var args = _.concat(inputArgs, outputArgs);
-    console.log(args.join(' '));
     return ChildProcess.spawn(cmd, args, options);
+}
+
+/**
+ * Use ffprobe to obtain the duration and dimension of a file
+ *
+ * @param  {String} srcPath
+ *
+ * @return {Object}
+ */
+function probeMediaFile(srcPath) {
+    return new Promise((resolve, reject) => {
+        var cmd = `ffprobe`;
+        var args = [], arg = Array.prototype.push.bind(args);
+        arg('-print_format', 'json');
+        arg('-show_streams');
+        arg(srcPath);
+
+        ChildProcess.execFile(cmd, args, (err, stdout, stderr) => {
+            if (!err) {
+                var dump = JSON.parse(stdout);
+                var info = {};
+                var videoStream = _.find(dump.streams, { codec_type: 'video' });
+                var audioStream = _.find(dump.streams, { codec_type: 'audio' });
+                if (videoStream) {
+                    info.duration = videoStream.duration * 1000;
+                    info.width = videoStream.width;
+                    info.height = videoStream.height;
+                } else if (audioStream) {
+                    info.duration = audioStream.duration * 1000;
+                }
+                resolve(info);
+            } else {
+                resolve(null);
+            }
+        });
+    });
+}
+
+/**
+ * Wait for process to exit
+ *
+ * @param  {Process} childProcess
+ *
+ * @return {Promise}
+ */
+function waitForExit(childProcess) {
+    return new Promise((resolve, reject) => {
+        childProcess.on('exit', (code, signal) => {
+            if (code === 0) {
+                resolve()
+            } else {
+                reject(new Error(`Process exited with error code ${code}`));
+            }
+        });
+        childProcess.on('error', (err) => {
+            reject(err)
+        });
+    });
 }
