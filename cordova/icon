@@ -3,26 +3,30 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var FS = require('fs');
+var ChildProcess = require('child_process');
 var Path = require('path');
 var Phantom = require('phantom');
 var XML2JS = require('xml2js');
 
-getSplashScreens().then((screens) => {
+getIcons().then((icons) => {
     var chosen = process.argv[2] || 'all';
-    return Promise.each(screens, (screen) => {
+    return Promise.each(icons, (icon) => {
         var filename = 'splash-screen.html';
-        if (screen.platform === 'windows') {
+        if (icon.platform === 'windows') {
             filename = 'splash-screen-simple.html';
+        }
+        if (icon.platform !== 'android') {
+            return;
         }
         var path = Path.resolve(`${__dirname}/../../trambar/client/assets/${filename}`);
         if (/^[A-Z]:\\/i.test(path)) {
             path = '/' + _.replace(path, /\\/g, '/');
         }
         var url = 'file://' + path;
-        var dstPath = Path.resolve(`./trambar/${screen.src}`);
-        var width = parseInt(screen.width);
-        var height = parseInt(screen.height);
-        switch (screen.density) {
+        var dstPath = Path.resolve(`./trambar/${icon.src}`);
+        var width = parseInt(icon.width);
+        var height = parseInt(icon.height);
+        switch (icon.density) {
             case 'ldpi':
                 width = 36;
                 height = 36;
@@ -49,9 +53,21 @@ getSplashScreens().then((screens) => {
                 break;
         }
         if (width && height && dstPath) {
-            return createSplashScreen(url, width, height, dstPath).catch((err) => {
-                console.error(err);
-            });
+            console.log(`Creating ${dstPath}...`);
+            if (icon.platform === 'android') {
+                var tmpPath = dstPath + '.rectangle.png';
+                return createSplashScreen(url, width, height, tmpPath).then(() => {
+                    return applyCircularMask(tmpPath, width, height, 2, dstPath).then(() => {
+                        return FS.unlinkSync(tmpPath);
+                    });
+                }).catch((err) => {
+                    console.error(err);
+                });
+            } else {
+                return createSplashScreen(url, width, height, dstPath).catch((err) => {
+                    console.error(err);
+                });
+            }
         }
     }).then(() => {
         process.exit(0);
@@ -59,7 +75,6 @@ getSplashScreens().then((screens) => {
 });
 
 function createSplashScreen(url, width, height, dstPath) {
-    console.log(`Creating ${dstPath}...`);
     try {
         FS.unlinkSync(dstPath);
     } catch (err) {
@@ -89,7 +104,41 @@ function createSplashScreen(url, width, height, dstPath) {
     });
 }
 
-function getSplashScreens() {
+function applyCircularMask(srcPath, width, height, reduction, dstPath) {
+    return new Promise((resolve, reject) => {
+        var cmd = `convert`;
+        var args = [], arg = args.push.bind(args);
+        var x = Math.floor(width / 2);
+        var y = Math.floor(height / 2);
+        var w = Math.floor(width / 2 - reduction);
+        var h = Math.floor(height / 2 - reduction);
+
+        arg(srcPath);
+        arg('-alpha', 'on');
+        arg('-background', 'none');
+        arg('(');
+            arg('+clone');
+            arg('-channel', 'a');
+            arg('-evaluate', 'multiply', 0);
+            arg('+channel');
+            arg('-fill', 'white');
+            arg('-draw', `ellipse ${x} ${y}, ${w},${h}, 0,360`);
+        arg(')');
+        arg('-compose', 'DstIn');
+        arg('-composite');
+        arg(dstPath);
+
+        ChildProcess.execFile(cmd, args, (err, stdout, stderr) => {
+            if (!err) {
+                resolve(stdout);
+            } else {
+                reject(err);
+            }
+        });
+    });
+}
+
+function getIcons() {
     var chosen = process.argv[2] || 'all';
     return new Promise((resolve, reject) => {
         var configPath = './trambar/config.xml';
