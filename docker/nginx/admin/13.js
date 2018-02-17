@@ -1,1 +1,1 @@
-webpackJsonp([13],{148:function(e,n){e.exports="**Site name** - Name of the site.\n"}});
+webpackJsonp([13],{154:function(n,e){n.exports="**Site name** -\n\n**Description** -\n\n**Address** -\n\n**Push relay** -\n\n**Background image** -\n\n**Input languages** -\n"}});
