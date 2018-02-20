@@ -3,9 +3,9 @@ var Promise = require('bluebird');
 
 var LocalSearch = require('data/local-search');
 
-module.exports = RemoteDataChange;
+module.exports = Change;
 
-function RemoteDataChange(location, objects, options) {
+function Change(location, objects, options) {
     this.location = location;
     this.objects = _.map(objects, (object) => {
         if (!object.uncommitted) {
@@ -46,7 +46,11 @@ function RemoteDataChange(location, objects, options) {
     }
 }
 
-RemoteDataChange.prototype.dispatch = function() {
+/**
+ * Send a pending change to remote server by triggering the attached
+ * onDispatch handler
+ */
+Change.prototype.dispatch = function() {
     if (this.dispatched || this.canceled) {
         // already sent or canceled
         return;
@@ -75,7 +79,10 @@ RemoteDataChange.prototype.dispatch = function() {
     });
 };
 
-RemoteDataChange.prototype.cancel = function() {
+/**
+ * Cancel a change, triggering the attached onCancel handler
+ */
+Change.prototype.cancel = function() {
     if (this.canceled) {
         // already canceled
         return;
@@ -85,8 +92,7 @@ RemoteDataChange.prototype.cancel = function() {
         clearTimeout(this.timeout);
     }
     if (this.dispatched) {
-        // the change was already sent--don't call onCancel unless
-        // onDispatch failed
+        // the change was already sent
         return;
     }
     this.onCancel(this).then(() => {
@@ -102,7 +108,7 @@ RemoteDataChange.prototype.cancel = function() {
  *
  * @param  {Object} earlierOp
  */
-RemoteDataChange.prototype.merge = function(earlierOp) {
+Change.prototype.merge = function(earlierOp) {
     if (!_.isEqual(earlierOp.location, this.location)) {
         return;
     }
@@ -132,7 +138,7 @@ RemoteDataChange.prototype.merge = function(earlierOp) {
  * @param  {Object} search
  * @param  {Boolean} includeDeleted
  */
-RemoteDataChange.prototype.apply = function(search, includeDeleted) {
+Change.prototype.apply = function(search, includeDeleted) {
     if (this.canceled) {
         return;
     }
@@ -178,9 +184,14 @@ RemoteDataChange.prototype.apply = function(search, includeDeleted) {
             }
         }
     });
-}
+};
 
-RemoteDataChange.prototype.deliverables = function() {
+/**
+ * Return data that should be sent to the server
+ *
+ * @return {Array<Object>}
+ */
+Change.prototype.deliverables = function() {
     var remaining = _.filter(this.objects, (object, index) => {
         return !this.removed[index];
     });
@@ -192,7 +203,23 @@ RemoteDataChange.prototype.deliverables = function() {
             return _.omit(object, 'uncommitted')
         }
     });
-}
+};
+
+/**
+ * Remove deleted objects with temporary ids, returning true if there's
+ * nothing left to be saved
+ *
+ * @return {Boolean}
+ */
+Change.prototype.noop = function() {
+    this.objects = _.filter(this.objects, (object) => {
+        if (object.deleted && object.id < 1) {
+            return false;
+        }
+        return true;
+    });
+    return _.isEmpty(this.objects);
+};
 
 /**
  * Return a temporary id that can be used to identify an uncommitted object
