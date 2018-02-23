@@ -23,6 +23,7 @@ module.exports = React.createClass({
         return {
             mode: this.selectMode(),
             devicePixelRatio: window.devicePixelRatio,
+            webpSupport: isWebpSupported(),
             details: null,
         };
     },
@@ -83,39 +84,45 @@ module.exports = React.createClass({
             return;
         }
 
-        var filters = [];
-        // apply clipping rect
-        var clip = getClippingRect(res, params);
-        if (clip) {
-            // run number through Math.round() just in case error elsewhere left fractional pixel dimensions
-            var rect = _.map([ clip.left, clip.top, clip.width, clip.height ], Math.round);
-            filters.push(`cr${rect.join('-')}`)
-        }
-        // resize image (if dimensions are specified)
-        var width = decodeLength(params.width);
-        var height = decodeLength(params.height);
-        if (this.state.devicePixelRatio !== 1) {
-            // request higher resolution image when pixel density is higher
-            width = Math.round(width * this.state.devicePixelRatio);
-            height = Math.round(height * this.state.devicePixelRatio);
-        }
-        if (width && height) {
-            filters.push(`re${width}-${height}`);
-        } else if (!width && height) {
-            filters.push(`h${height}`);
-        } else if (!height && width) {
-            filters.push(`w${width}`);
-        }
-        // set quality
-        if (params.quality !== undefined) {
-            filters.push(`q${params.quality}`);
-        }
         var versionPath = '';
-        if (filters.length > 0) {
+        if (!params.original) {
+            var filters = [];
+            // apply clipping rect
+            var clip = getClippingRect(res, params);
+            if (clip) {
+                // run number through Math.round() just in case error elsewhere left fractional pixel dimensions
+                var rect = _.map([ clip.left, clip.top, clip.width, clip.height ], Math.round);
+                filters.push(`cr${rect.join('-')}`)
+            }
+            // resize image (if dimensions are specified)
+            var width = decodeLength(params.width);
+            var height = decodeLength(params.height);
+            if (this.state.devicePixelRatio !== 1) {
+                // request higher resolution image when pixel density is higher
+                width = Math.round(width * this.state.devicePixelRatio);
+                height = Math.round(height * this.state.devicePixelRatio);
+            }
+            if (width && height) {
+                filters.push(`re${width}-${height}`);
+            } else if (!width && height) {
+                filters.push(`h${height}`);
+            } else if (!height && width) {
+                filters.push(`w${width}`);
+            }
+            // set quality
+            if (params.quality !== undefined) {
+                filters.push(`q${params.quality}`);
+            }
             versionPath = `/${filters.join('+')}`;
-            if (res.format === 'png' || res.format === 'gif') {
-                // use PNG to preserve alpha channel
-                versionPath += `.png`;
+            if (this.state.webpSupport) {
+                versionPath += `.webp`;
+            } else {
+                if (res.format === 'png' || res.format === 'gif') {
+                    // use PNG to preserve alpha channel
+                    versionPath += `.png`;
+                } else {
+                    versionPath += `.jpg`;
+                }
             }
         }
         return `${this.props.serverAddress}${resURL}${versionPath}`;
@@ -434,6 +441,9 @@ function getBandwidth(networkType) {
 }
 
 function getClippingRect(res, params) {
+    if (params.original) {
+        return null;
+    }
     var clip = res.clip;
     if (params.hasOwnProperty('clip')) {
         // override the one stored in res
@@ -444,4 +454,16 @@ function getClippingRect(res, params) {
         }
     }
     return clip;
+}
+
+function isWebpSupported() {
+    var canvas = document.createElement('CANVAS');
+    canvas.width = canvas.height = 1;
+    if (canvas.toDataURL) {
+        var url = canvas.toDataURL('image/webp');
+        if (url.indexOf('image/webp') === 5) {
+            return true;
+        }
+    }
+    return false;
 }
