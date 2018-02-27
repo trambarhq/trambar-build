@@ -5,40 +5,46 @@ var Folder = require('./lib/folder');
 var Git = require('./lib/git');
 var Shell = require('./lib/shell');
 
+var repo = 'git@github.com:chung-leong/trambar.git';
+var wf = 'codebase';
+
 Shell.chdir(__dirname);
 
 // update or create working folder
-if (Folder.exists('trambar')) {
-    Shell.chdir('trambar');
+var branch = Git.getCurrentBranch();
+if (Folder.exists(wf)) {
+    Shell.chdir(wf);
     Git.reset();
+    Git.checkout(branch, { force: true });
     Git.fetch();
     Git.rebase();
     Shell.chdir(__dirname);
 } else {
-    Git.clone('git@github.com:chung-leong/trambar.git', { depth: 1 })
+    Git.clone(repo, wf);
+    Git.checkout(branch, { force: true });
 }
 
 // rebuild client-side JS code
-Folder.create('trambar/admin/www');
-Shell.chdir('trambar/admin');
+Folder.create(`${wf}/admin/www`);
+Shell.chdir(`${wf}/admin`);
 Shell.run('npm install');
 Shell.run('npm run build');
 Shell.chdir(__dirname);
 
-Folder.create('trambar/client/www');
-Folder.create('trambar/client/www-cordova');
-Shell.chdir('trambar/client');
+Folder.create(`${wf}/client/www`);
+Folder.create(`${wf}/client/www-cordova`);
+Shell.chdir(`${wf}/client`);
 Shell.run('npm install');
 Shell.run('npm run build');
 Shell.run('npm run build cordova');
 Shell.chdir(__dirname);
 
 // copy files into Docker folder
-Folder.copy('trambar/admin/www', 'docker/nginx/admin');
-Folder.copy('trambar/client/www', 'docker/nginx/client');
-Folder.copy('trambar/backend', 'docker/node/backend');
-Folder.copy('trambar/common', 'docker/node/common');
-File.copy('trambar/backend/package.json', 'docker/node/package.json');
+Folder.copy(`${wf}/admin/www`, 'docker/nginx/admin');
+Folder.copy(`${wf}/client/www`, 'docker/nginx/client');
+Folder.copy(`${wf}/backend`, 'docker/node/backend');
+Folder.copy(`${wf}/common`, 'docker/node/common');
+File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
 
 // copy files into Cordova folder
-Folder.copy('trambar/client/www-cordova', 'cordova/trambar/www');
+Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');
