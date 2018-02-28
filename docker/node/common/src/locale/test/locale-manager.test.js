@@ -4,30 +4,33 @@ var React = require('react');
 var Chai = require('chai'), expect = Chai.expect;
 var Enzyme = require('enzyme');
 
-var LocaleManager = require('locale/locale-manager.jsx');
+var LocaleManager = require('locale/locale-manager');
+
+var directory = [
+    {
+        code: 'pl',
+        defaultCountry: 'pl',
+        module: () => import('./locales/pl'),
+    },
+    {
+        code: 'ru',
+        defaultCountry: 'ru',
+        module: () => import('./locales/ru'),
+    }
+];
 
 describe('LocaleManager', function() {
     var changeCount = 0;
     var managerReady = new Promise((resolve, reject) => {
         var props = {
             defaultLanguageCode: 'pl-pl',
+            directory: directory,
             onChange: (evt) => {
                 if (resolve) {
                     resolve(evt.target);
                     resolve = null; // don't call this again
                 }
                 changeCount++;
-            },
-            onModuleRequest: (evt) => {
-                var languageCode = evt.languageCode.substr(0, 2);
-                return new Promise((resolve, reject) => {
-                    var Promise = window.Promise || require('bluebird');
-                    switch (languageCode) {
-                        case 'pl': require.ensure([ './locales/pl' ], () => { try { resolve(require('./locales/pl')) } catch(err) { reject(err) } }); break;
-                        case 'ru': require.ensure([ './locales/ru' ], () => { try { resolve(require('./locales/ru')) } catch(err) { reject(err) } }); break;
-                        default: reject(new Error('No module for language: ' + languageCode));
-                    }
-                });
             },
         };
         var wrapper = Enzyme.mount(<LocaleManager {...props} />);
@@ -45,7 +48,7 @@ describe('LocaleManager', function() {
             expect(manager.getLocaleCode()).to.equal('pl-pl');
         });
     })
-    describe('#change', function() {
+    describe('#change()', function() {
         it('should be able to switch to Russian', function() {
             return managerReady.then((manager) => {
                 return manager.change('ru-ua').then(() => {
@@ -71,7 +74,7 @@ describe('LocaleManager', function() {
             expect(changeCount).to.be.above(3);
         })
     });
-    describe('#translate', function() {
+    describe('#translate()', function() {
         it('should produce the test phrase in Polish', function() {
             return managerReady.then((manager) => {
                 return manager.change('pl-pl').then(() => {
@@ -107,7 +110,7 @@ describe('LocaleManager', function() {
             });
         })
     });
-    describe('#pick', function() {
+    describe('#pick()', function() {
         it('should pick the Polish version when the language is set to Polish', function() {
             var phrase = {
                 en: 'I love the smell of napalm in the morning',

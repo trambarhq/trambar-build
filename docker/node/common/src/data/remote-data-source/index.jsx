@@ -24,14 +24,14 @@ module.exports = React.createClass({
     displayName: 'RemoteDataSource',
     mixins: [ UpdateCheck ],
     propTypes: {
-        refreshInterval: PropTypes.number,
         basePath: PropTypes.string,
         discoveryFlags: PropTypes.object,
         retrievalFlags: PropTypes.object,
-        committedResultsOnly: PropTypes.bool,
         hasConnection: PropTypes.bool,
         inForeground: PropTypes.bool,
         cache: PropTypes.object,
+        refreshInterval: PropTypes.number,
+        sessionRetryInterval: PropTypes.number,
 
         onChange: PropTypes.func,
         onSearch: PropTypes.func,
@@ -48,11 +48,13 @@ module.exports = React.createClass({
      */
     getDefaultProps: function() {
         return {
-            refreshInterval: 15 * 60,   // 15 minutes
             basePath: '',
+            discoveryFlags: {},
+            retrievalFlags: {},
             hasConnection: true,
-            committedResultsOnly: true,
             inForeground: true,
+            refreshInterval: 15 * 60,   // 15 minutes
+            sessionRetryInterval: 5000,
         };
     },
 
@@ -129,7 +131,7 @@ module.exports = React.createClass({
                 session.promise = null;
                 // trigger a change event after a delay, which should cause the
                 // caller to try again
-                setTimeout(this.triggerChangeEvent, 5000);
+                setTimeout(this.triggerChangeEvent, this.props.sessionRetryInterval);
                 throw err;
             });
         }
@@ -192,12 +194,8 @@ module.exports = React.createClass({
         var options = { responseType: 'json', contentType: 'json' };
         return HTTPRequest.fetch('POST', url, payload, options).then((res) => {
             _.assign(session, res.session);
-            if (session.token) {
-                this.triggerAuthorizationEvent(session);
-                return null;
-            } else {
-                throw new HTTPError(session.error);
-            }
+            this.triggerAuthorizationEvent(session);
+            return null;
         }).catch((err) => {
             if (err.statusCode !== 401) {
                 // clear the promise if the session is no longer valid
@@ -220,7 +218,7 @@ module.exports = React.createClass({
         var session = getSession(address);
         var handle = session.handle;
         if (!handle) {
-            return Promise.resolve(false);
+            return Promise.resolve(null);
         }
         return Promise.resolve(session.promise).then(() => {
             var url = `${address}/session/`;
@@ -355,7 +353,7 @@ module.exports = React.createClass({
         } else if (type === 'test') {
             query += '&test=1';
         }
-        var url = `${address}/session/${oauthServer.type}?${query}`;
+        var url = `${address}/session/${oauthServer.type}/?${query}`;
         return url;
     },
 
@@ -401,7 +399,7 @@ module.exports = React.createClass({
      */
     start: function(location) {
         // Promise.resolve() ensures that the callback won't get called
-        // within render()
+        // within render(), where an exception can cause a cascade of other failures
         return Promise.resolve().then(() => {
             if (location.schema === 'local') {
                 return 0;
@@ -515,7 +513,8 @@ module.exports = React.createClass({
                     throw new HTTPError(404);
                 }
             }
-            if (!this.props.committedResultsOnly && !search.committed) {
+            var includeUncommitted = _.get(this.props.discoveryFlags, 'include_uncommitted');
+            if (includeUncommitted && !search.committed) {
                 // apply changes that haven't been saved yet
                 search = this.applyUncommittedChanges(search);
             }
@@ -583,6 +582,24 @@ module.exports = React.createClass({
                 return removal.results;
             });
         }
+    },
+
+    /**
+     * Remove recent searches on schema
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     */
+    clear: function(address, schema) {
+        this.updateList('recentSearchResults', (before) => {
+            var after = _.filter(before, (search) => {
+                if (_.isMatch(search, { address, schema })) {
+                    return false;
+                }
+                return true;
+            });
+            return after;
+        });
     },
 
     /**
@@ -730,24 +747,6 @@ module.exports = React.createClass({
                 }
                 return null;
             });
-        });
-    },
-
-    /**
-     * Remove recent searches on schema
-     *
-     * @param  {String} address
-     * @param  {String} schema
-     */
-    clear: function(address, schema) {
-        this.updateList('recentSearchResults', (before) => {
-            var after = _.filter(before, (search) => {
-                if (_.isMatch(search, { address, schema })) {
-                    return false;
-                }
-                return true;
-            });
-            return after;
         });
     },
 
@@ -1145,22 +1144,20 @@ module.exports = React.createClass({
         if (!table) {
             return Promise.reject(new Error('No table specified'));
         }
+        var flags;
+        if (action === 'retrieval' || action === 'storage') {
+            flags = this.props.retrievalFlags;
+        } else if (action === 'discovery') {
+            flags = _.omit(this.props.discoveryFlags, 'include_uncommitted');
+        }
         var url = `${address}${prefix}/data/${action}/${schema}/${table}/`;
         var session = getSession(address);
-        payload = _.clone(payload) || {};
-        if (session.token) {
-            payload.auth_token = session.token;
-        }
-        if (action === 'retrieval' || action === 'storage') {
-            _.assign(payload, this.props.retrievalFlags);
-        } else if (action === 'discovery') {
-            _.assign(payload, this.props.discoveryFlags);
-        }
+        var req = _.assign({}, payload, flags, { auth_token: session.token });
         var options = {
             contentType: 'json',
             responseType: 'json',
         };
-        return HTTPRequest.fetch('POST', url, payload, options).then((result) => {
+        return HTTPRequest.fetch('POST', url, req, options).then((result) => {
             return result;
         }).catch((err) => {
             this.clearRecentSearches(address);

@@ -11,6 +11,7 @@ module.exports = React.createClass({
         serverAddress: PropTypes.string,
         networkType: PropTypes.string,
         database: PropTypes.instanceOf(Database),
+        useWebP: PropTypes.bool,
         onChange: PropTypes.func,
     },
 
@@ -47,6 +48,15 @@ module.exports = React.createClass({
         var pairs = _.sortBy(_.toPairs(this.props.modes), 1);
         var list = _.map(pairs, 0);
         return _.keys(this.props.modes);
+    },
+
+    /**
+     * Return available bandwidth, in bits per second
+     *
+     * @return {Number}
+     */
+    getBandwidth: function() {
+        return parseInt(getBandwidth(this.props.networkType)) * 1000;
     },
 
     /**
@@ -102,28 +112,43 @@ module.exports = React.createClass({
                 width = Math.round(width * this.state.devicePixelRatio);
                 height = Math.round(height * this.state.devicePixelRatio);
             }
-            if (width && height) {
-                filters.push(`re${width}-${height}`);
-            } else if (!width && height) {
-                filters.push(`h${height}`);
-            } else if (!height && width) {
-                filters.push(`w${width}`);
+            var resizing = width || height;
+            if (resizing) {
+                if (width && height) {
+                    filters.push(`re${width}-${height}`);
+                } else if (!width && height) {
+                    filters.push(`h${height}`);
+                } else if (!height && width) {
+                    filters.push(`w${width}`);
+                }
+                if (res.format === 'png' || res.format === 'gif') {
+                    // add sharpen filter to reduce blurriness
+                    filters.push(`sh`);
+                }
             }
             // set quality
             if (params.quality !== undefined) {
                 filters.push(`q${params.quality}`);
             }
-            versionPath = `/${filters.join('+')}`;
-            if (this.state.webpSupport) {
-                versionPath += `.webp`;
+            // choose format
+            var ext;
+            if ((this.state.webpSupport && this.props.useWebP !== false) || this.props.useWebP === true) {
+                ext = 'webp';
+                if (res.format === 'png' || res.format === 'gif') {
+                    if (!resizing) {
+                        // use lossless compression (since it'll likely produce a smaller file)
+                        filters.push(`l`);
+                    }
+                }
             } else {
                 if (res.format === 'png' || res.format === 'gif') {
                     // use PNG to preserve alpha channel
-                    versionPath += `.png`;
+                    ext = `png`;
                 } else {
-                    versionPath += `.jpg`;
+                    ext = 'jpg';
                 }
             }
+            versionPath = `/${filters.join('+')}.${ext}`;
         }
         return `${this.props.serverAddress}${resURL}${versionPath}`;
     },
@@ -193,7 +218,7 @@ module.exports = React.createClass({
         }
         var clip = getClippingRect(res, params);
         var dims = {};
-        if (clip) {
+        if (clip && !params.original) {
             // return the dimensions of the clipping rect
             dims = {
                 width: clip.width,
@@ -230,15 +255,19 @@ module.exports = React.createClass({
         if (params.hasOwnProperty('bitrate')) {
             return _.find(res.resources, { bitrates: { video: params.bitrate }}) || null;
         }
-        // both bitrate and bandwidths are in kbps
-        var bandwidth = parseInt(getBandwidth(this.props.networkType));
+        var bandwidth = this.getBandwidth();
         var bitrate = (version) => {
             return parseInt(_.get(version, 'bitrates.video'));
         };
         var below = (version) => {
-            return (bitrate(version) <= bandwidth) ? 1 : 0;
+            var b = bitrate(version);
+            return (b <= bandwidth) ? bandwidth - b : Infinity;
         };
-        var versions = _.orderBy(res.versions, [ below, bitrate ], [ 'desc', 'desc' ]);
+        var above = (version) => {
+            var b = bitrate(version);
+            return (b > bandwidth) ? b - bandwidth : 0;
+        };
+        var versions = _.sortBy(res.versions, [ below, above ]);
         return _.first(versions) || null;
     },
 
@@ -255,15 +284,20 @@ module.exports = React.createClass({
         if (params.hasOwnProperty('bitrate')) {
             return _.find(res.resources, { bitrates: { audio: params.bitrate }}) || null;
         }
-        // both bitrate and bandwidths are in kbps
-        var bandwidth = parseInt(getBandwidth(this.props.networkType));
+        var bandwidth = this.getBandwidth();
         var bitrate = (version) => {
             return parseInt(_.get(version, 'bitrates.audio'));
         };
+        // find bitrate closest to bandwidth, below it if possible
         var below = (version) => {
-            return (bitrate(version) <= bandwidth) ? 1 : 0;
+            var b = bitrate(version);
+            return (b <= bandwidth) ? bandwidth - b : Infinity;
         };
-        var versions = _.orderBy(res.versions, [ below, bitrate ], [ 'desc', 'desc' ]);
+        var above = (version) => {
+            var b = bitrate(version);
+            return (b > bandwidth) ? b - bandwidth : 0;
+        };
+        var versions = _.sortBy(res.versions, [ below, above ]);
         return _.first(versions) || null;
     },
 
