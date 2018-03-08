@@ -1,1 +1,1 @@
-webpackJsonp([15],{153:function(n,e){n.exports="**Server type** - Windows Live\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Redirect URI** -\n\n**Application ID** -\n\n**Application secret** -\n\n**API access** - Not applicable\n"}});
+webpackJsonp([15],{159:function(n,e){n.exports="**Server type** - Windows Live\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Redirect URI** -\n\n**Application ID** -\n\n**Application secret** -\n\n**API access** - Not applicable\n"}});

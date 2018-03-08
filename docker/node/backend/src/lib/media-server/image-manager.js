@@ -4,6 +4,8 @@ var FS = Promise.promisifyAll(require('fs'));
 var Sharp = require('sharp');
 var Piexif = require("piexifjs");
 var Moment = require('moment');
+var DOMParser = require('xmldom').DOMParser;
+var XMLSerializer = require('xmldom').XMLSerializer;
 
 module.exports = {
     applyFilters,
@@ -29,7 +31,7 @@ function getImageMetadata(path) {
     })
 }
 
-var operators = {
+var sharpOperators = {
     background: function(r, g, b, a) {
         this.background(r / 100, g / 100, b / 100, a / 100);
     },
@@ -101,15 +103,19 @@ var operators = {
  * @return {Promise<Buffer>}
  */
 function applyFilters(path, filters, format) {
-    var image = Sharp(path);
-    return applyFiltersToImage(image, filters, format).catch((err) => {
-        // sometimes Sharp will fail when a file path is given
-        // whereas a blob will work
-        return FS.readFileAsync(path).then((data) => {
-            var image = Sharp(data);
-            return applyFiltersToImage(image, filters, format);
+    if (format === 'svg') {
+        return applyFiltersToSVGDocument(path, filters);
+    } else {
+        var image = Sharp(path);
+        return applyFiltersToImage(image, filters, format).catch((err) => {
+            // sometimes Sharp will fail when a file path is given
+            // whereas a blob will work
+            return FS.readFileAsync(path).then((data) => {
+                var image = Sharp(data);
+                return applyFiltersToImage(image, filters, format);
+            });
         });
-    })
+    }
 }
 
 function applyFiltersToImage(image, filters, format) {
@@ -118,29 +124,7 @@ function applyFiltersToImage(image, filters, format) {
             quality: 90,
             lossless: false,
         };
-        _.each(_.split(filters, /[ +]/), (filter) => {
-            var cmd = '', args = [];
-            var regExp = /(\D+)(\d*)/g, m;
-            while(m = regExp.exec(filter)) {
-                if (!cmd) {
-                    cmd = m[1];
-                } else {
-                    // ignore the delimiter
-                }
-                var arg = parseInt(m[2]);
-                if (arg === arg) {
-                    args.push(arg);
-                }
-            }
-            var operator = null;
-            _.each(operators, (operator, name) => {
-                // see which operator's name start with the letter(s)
-                if (name.substr(0, cmd.length) === cmd) {
-                    operator.apply(image, args);
-                    return false;
-                }
-            });
-        });
+        applyOperators(image, sharpOperators, filters);
         var quality = image.settings.quality;
         var lossless = image.settings.lossless;
         switch (_.toLower(format)) {
@@ -153,8 +137,148 @@ function applyFiltersToImage(image, filters, format) {
             case 'jpeg':
                 image.jpeg({ quality });
                 break;
+            default:
+                throw new Error(`Unknown output format: ${format}`);
         }
         return image.toBuffer();
+    });
+}
+
+// current implementation is fairly limited
+var svgOperators = {
+    crop: function(left, top, width, height) {
+        this.crop = { left, top, width, height };
+    },
+    height: function(height) {
+        this.height = height;
+    },
+    resize: function(width, height) {
+        this.width = width;
+        this.height = height;
+    },
+    width: function(width) {
+        this.width = width;
+    },
+};
+
+/**
+ * Apply filters on an SVG document
+ *
+ * @param  {String} path
+ * @param  {String} filters
+ *
+ * @return {Promise<Buffer>}
+ */
+function applyFiltersToSVGDocument(path, filters) {
+    if (!filters) {
+        return FS.readFileAsync(path);
+    }
+    return FS.readFileAsync(path, 'utf-8').then((xml) => {
+        // parse the XML doc
+        var parser = new DOMParser;
+        var doc = parser.parseFromString(xml);
+
+        var svg = doc.getElementsByTagName('svg')[0];
+        if (svg) {
+            // see what changes are needed
+            var params = {};
+            applyOperators(params, svgOperators, filters);
+
+            // get the dimensions first
+            var width = parseFloat(svg.getAttribute('width')) || 0;
+            var height = parseFloat(svg.getAttribute('height')) || 0;
+            var viewBoxString = svg.getAttribute('viewBox');
+            var viewBox;
+            if (viewBoxString) {
+                viewBox = _.map(_.split(viewBoxString, /\s+/), (s) => {
+                    return parseInt(s);
+                });
+            }
+            if (!width) {
+                if (viewBox) {
+                    width = viewBox[2];
+                }
+            }
+            if (!height) {
+                if (viewBox) {
+                    height = viewBox[3];
+                }
+            }
+            if (!width) {
+                width = 1000;
+            }
+            if (!height) {
+                height = 1000;
+            }
+            if (!viewBox) {
+                viewBox = [ 0, 0, width, height ];
+            }
+
+            if (params.crop) {
+                var vbScaleX = viewBox[2] / width;
+                var vbScaleY = viewBox[3] / height;
+                var vbPrecision = Math.max(0, Math.round(3 - Math.log10(viewBox[2])));
+                width = params.crop.width;
+                height = params.crop.height;
+                viewBox[0] = _.round(params.crop.left * vbScaleX + viewBox[0], vbPrecision);
+                viewBox[1] = _.round(params.crop.top * vbScaleY + viewBox[1], vbPrecision);
+                viewBox[2] = _.round(params.crop.width * vbScaleX, vbPrecision);
+                viewBox[3] = _.round(params.crop.height * vbScaleY, vbPrecision);
+            }
+            if (params.width !== undefined || params.height !== undefined) {
+                if (params.width && params.height === undefined) {
+                    height = _.round(height * (params.width / width));
+                    width = params.width;
+                } else if (params.height && params.width === undefined) {
+                    width = _.round(width * (params.height / height));
+                    height = params.height;
+                } else {
+                    width = params.width;
+                    height = params.height;
+                }
+            }
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+            svg.setAttribute('viewBox', _.join(viewBox, ' '));
+        }
+
+        var serializer = new XMLSerializer;
+        var newXML = serializer.serializeToString(doc);
+        return Buffer.from(newXML, 'utf-8');
+    });
+}
+
+/**
+ * Find functions for filters and call them on target
+ *
+ * @param  {Object} target
+ * @param  {Array<Function>} operators
+ * @param  {String} filters
+ */
+function applyOperators(target, operators, filters) {
+    _.each(_.split(filters, /[ +]/), (filter) => {
+        var cmd = '', args = [];
+        var regExp = /(\D+)(\d*)/g, m;
+        while(m = regExp.exec(filter)) {
+            if (!cmd) {
+                cmd = m[1];
+            } else {
+                // ignore the delimiter
+            }
+            var arg = parseInt(m[2]);
+            if (arg === arg) {
+                args.push(arg);
+            }
+        }
+        if (cmd) {
+            _.each(operators, (operator, name) => {
+                // see which operator's name start with the letter(s)
+                if (name.substr(0, cmd.length) === cmd) {
+                    operator.apply(target, args);
+                    return false;
+                }
+            });
+        }
     });
 }
 

@@ -1,1 +1,1 @@
-webpackJsonp([17],{151:function(n,e){n.exports="**Server type** - GitLab\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Callback URL** -\n\n**GitLab URL** -\n\n**Application ID** -\n\n**Application secret** -\n\n**API access** - \n"}});
+webpackJsonp([17],{157:function(n,e){n.exports="**Server type** - GitLab\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Callback URL** -\n\n**GitLab URL** -\n\n**Application ID** -\n\n**Application secret** -\n\n**API access** - \n"}});

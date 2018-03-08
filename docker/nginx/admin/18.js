@@ -1,1 +1,1 @@
-webpackJsonp([18],{150:function(n,e){n.exports="**Server type** - GitHub\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Callback URL** -\n\n**Client ID** -\n\n**Client secret** -\n\n**API access** - Not applicable\n"}});
+webpackJsonp([18],{156:function(n,e){n.exports="**Server type** - GitHub\n\n**Name** -\n\n**Identifier** -\n\n**New users** -\n\n**Role assignment** -\n\n**Callback URL** -\n\n**Client ID** -\n\n**Client secret** -\n\n**API access** - Not applicable\n"}});

@@ -5,7 +5,8 @@ var ReactDOM = require('react-dom');
 var Hammer = require('hammerjs');
 var ComponentRefs = require('utils/component-refs');
 
-var ImageView = require('media/image-view');
+var BitmapView = require('media/bitmap-view');
+var VectorView = require('media/vector-view');
 
 require('./image-cropper.scss');
 
@@ -14,7 +15,7 @@ module.exports = React.createClass({
     propTypes: {
         url: PropTypes.string.isRequired,
         clippingRect: PropTypes.object,
-        aspectRatio: PropTypes.number,
+        vector: PropTypes.bool,
         onChange: PropTypes.func,
         onLoad: PropTypes.func,
     },
@@ -26,7 +27,7 @@ module.exports = React.createClass({
      */
     getDefaultProps: function() {
         return {
-            aspectRatio: 1
+            vector: false,
         };
     },
 
@@ -38,7 +39,7 @@ module.exports = React.createClass({
     getInitialState: function() {
         this.components = ComponentRefs({
             container: HTMLElement,
-            image: ImageView,
+            image: BitmapView,
         });
         return {
             clippingRect: this.props.clippingRect,
@@ -52,15 +53,20 @@ module.exports = React.createClass({
      * @param  {Object} nextProps
      */
     componentWillReceiveProps: function(nextProps) {
-        if (this.props.url !== nextProps.url || this.props.clippingRect !== nextProps.clippingRect) {
+        if (this.props.clippingRect !== nextProps.clippingRect) {
+            if (!this.zoomChangeTimeout) {
+                this.setState({ clippingRect: nextProps.clippingRect });
+            } else {
+                console.log('Ignoring incoming clipping rect');
+            }
+        }
+        if (this.props.url !== nextProps.url) {
             if (this.zoomChangeTimeout) {
                 // set the deferred zoom changes before we switch to a different image
                 clearTimeout(this.zoomChangeTimeout);
-                if (this.props.url !== nextProps.url) {
-                    this.triggerChangeEvent(this.state.clippingRect);
-                }
+                this.triggerChangeEvent(this.state.clippingRect);
+                this.zoomChangeTimeout = 0;
             }
-            this.setState({ clippingRect: nextProps.clippingRect });
         }
     },
 
@@ -87,9 +93,13 @@ module.exports = React.createClass({
             clippingRect: this.state.clippingRect,
             onLoad: this.props.onLoad,
         };
+        var View = BitmapView;
+        if (this.props.vector) {
+            View = VectorView;
+        }
         return (
             <div {...containerProps}>
-                <ImageView {...imageProps} />
+                <View {...imageProps} />
             </div>
         );
     },

@@ -241,7 +241,7 @@ module.exports = _.create(ExternalData, {
                 if (row.ready === false) {
                     object.ready = false;
                 }
-                if (!object.published) {
+                if (!object.published || !object.ready) {
                     // don't send text when object isn't published and
                     // there the user isn't the owner
                     if (object.user_id !== credentials.user.id) {
@@ -252,6 +252,35 @@ module.exports = _.create(ExternalData, {
             return objects;
         });
     },
+
+    /**
+     * Create associations between newly created or modified rows with
+     * rows in other tables
+     *
+     * @param  {Database} db
+     * @param  {String} schema
+     * @param  {Array<Object>} objects
+     * @param  {Array<Object>} originals
+     * @param  {Array<Object>} rows
+     * @param  {Object} credentials
+     *
+     * @return {Promise}
+     */
+     associate: function(db, schema, objects, originals, rows, credentials) {
+         return Promise.try(() => {
+             var deletedRows = _.filter(rows, { deleted: true });
+             if (!_.isEmpty(deletedRows)) {
+                 var Notification = require('accessors/notification');
+
+                 var deletedReactionIds = _.map(deletedRows, 'id');
+                 var criteria = { reaction_id: deletedReactionIds };
+                 var changes = { deleted: true };
+                 return Promise.all([
+                     Notification.updateMatching(db, schema, criteria, changes),
+                 ]);
+             }
+         });
+     },
 
     /**
      * See if a database change event is relevant to a given user

@@ -7,20 +7,19 @@ module.exports = Search;
 function Search(query) {
     Operation.call(this, query);
     this.criteria = query.criteria;
-    this.minimum = query.minimum;
-    this.expected = query.expected;
-    this.remote = query.remote;
-    this.committed = query.committed;
-    this.required = query.required;
+    this.remote = query.remote || false;
     this.dirty = false;
     this.updating = false;
+    this.background = false;
     this.lastRetrieved = 0;
 
-    // filter out bad values
-    this.criteria = removeUndefined(this.criteria);
-    this.criteria = removeTemporaryIds(this.criteria);
+    this.minimum = query.minimum;
+    this.expected = query.expected;
+    this.prefetch = query.prefetch;
 
-    if (typeof(this.expected) !== 'number') {
+    if (typeof(query.expected) === 'number') {
+        this.expected = query.expected;
+    } else {
         // if expected object count isn't specified, try inferring it from
         // the search criteria
         this.expected = countCriteria(this.criteria, 'id')
@@ -28,6 +27,19 @@ function Search(query) {
                      || countCriteria(this.criteria, 'filters')
                      || undefined;
     }
+    if (typeof(query.minimum) === 'number') {
+        this.minimum = query.minimum;
+    } else {
+        if (this.expected !== undefined) {
+            this.minimum = this.expected;
+        } else {
+            this.minimum = 1;
+        }
+    }
+
+    // filter out bad values
+    this.criteria = removeUndefined(this.criteria);
+    this.criteria = removeTemporaryIds(this.criteria);
 }
 
 Search.prototype = Object.create(Operation.prototype)
@@ -38,7 +50,7 @@ Search.prototype = Object.create(Operation.prototype)
  * @return {Object}
  */
 Search.prototype.getQuery = function() {
-    return _.pick(this, 'address', 'schema', 'table', 'criteria', 'minimum', 'expected', 'remote', 'committed');
+    return _.pick(this, 'address', 'schema', 'table', 'criteria');
 };
 
 /**
@@ -89,19 +101,7 @@ Search.prototype.matchCriteria = function(other) {
 };
 
 Search.prototype.matchOptions = function(other) {
-    if (this.minimum !== other.minimum) {
-        return false;
-    }
-    if (this.expected !== other.expected) {
-        return false;
-    }
     if (this.remote !== other.remote) {
-        return false;
-    }
-    if (this.committed !== other.committed) {
-        return false;
-    }
-    if (this.required !== other.required) {
         return false;
     }
     return true;
@@ -168,16 +168,8 @@ Search.prototype.isFresh = function(refreshInterval) {
  * @return {Boolean}
  */
 Search.prototype.isSufficientlyCached = function() {
-    var minimum = this.minimum;
-    if (minimum === undefined) {
-        // use the expected object count
-        minimum = this.expected;
-    }
-    if (minimum === undefined) {
-        minimum = 1;
-    }
     var count = this.results.length;
-    if (count < minimum) {
+    if (count < this.minimum) {
         return false;
     }
     return true;
