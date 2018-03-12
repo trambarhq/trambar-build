@@ -8,9 +8,11 @@ var Shell = require('./lib/shell');
 var repo = 'git@github.com:chung-leong/trambar.git';
 var wf = 'codebase';
 
-Shell.chdir(__dirname);
+var part = process.argv[2] || 'all';
+
 
 // update or create working folder
+Shell.chdir(__dirname);
 var branch = Git.getCurrentBranch();
 if (Folder.exists(wf)) {
     Shell.chdir(wf);
@@ -18,33 +20,42 @@ if (Folder.exists(wf)) {
     Git.checkout(branch, { force: true });
     Git.fetch();
     Git.rebase();
-    Shell.chdir(__dirname);
 } else {
     Git.clone(repo, wf);
     Git.checkout(branch, { force: true });
 }
 
-// rebuild client-side JS code
-Folder.create(`${wf}/admin/www`);
-Shell.chdir(`${wf}/admin`);
-Shell.run('npm install');
-Shell.run('npm run build');
-Shell.chdir(__dirname);
+if (part === 'admin' || part === 'all') {
+    // rebuild client-side JS code
+    Shell.chdir(__dirname);
+    Folder.create(`${wf}/admin/www`);
+    Shell.chdir(`${wf}/admin`);
+    Shell.run('npm install');
+    Shell.run('npm run build');
 
-Folder.create(`${wf}/client/www`);
-Folder.create(`${wf}/client/www-cordova`);
-Shell.chdir(`${wf}/client`);
-Shell.run('npm install');
-Shell.run('npm run build');
-Shell.run('npm run build cordova');
-Shell.chdir(__dirname);
+    // copy files into Docker folder for Nginx image
+    Folder.copy(`${wf}/admin/www`, 'docker/nginx/admin');
+}
 
-// copy files into Docker folder
-Folder.copy(`${wf}/admin/www`, 'docker/nginx/admin');
-Folder.copy(`${wf}/client/www`, 'docker/nginx/client');
-Folder.copy(`${wf}/backend`, 'docker/node/backend');
-Folder.copy(`${wf}/common`, 'docker/node/common');
-File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
+if (part === 'client' || part === 'all') {
+    Shell.chdir(__dirname);
+    Folder.create(`${wf}/client/www`);
+    Folder.create(`${wf}/client/www-cordova`);
+    Shell.chdir(`${wf}/client`);
+    Shell.run('npm install');
+    Shell.run('npm run build');
+    Shell.run('npm run build cordova');
 
-// copy files into Cordova folder
-Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');
+    // copy files into Docker folder for Nginx image
+    Folder.copy(`${wf}/client/www`, 'docker/nginx/client');
+    // copy files into Cordova folder
+    Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');
+}
+
+if (part === 'backend' || part === 'all') {
+    // copy files into Docker folder for Node image
+    Shell.chdir(__dirname);
+    Folder.copy(`${wf}/backend`, 'docker/node/backend');
+    Folder.copy(`${wf}/common`, 'docker/node/common');
+    File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
+}
