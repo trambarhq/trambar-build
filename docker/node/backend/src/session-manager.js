@@ -13,7 +13,7 @@ var Async = require('async-do-while');
 var HTTPError = require('errors/http-error');
 var Database = require('database');
 var Shutdown = require('shutdown');
-var ExternalObjectUtils = require('objects/utils/external-object-utils');
+var ExternalDataUtils = require('objects/utils/external-data-utils');
 var UserTypes = require('objects/types/user-types');
 var UserSettings = require('objects/settings/user-settings');
 
@@ -47,13 +47,15 @@ function start() {
     app.use(BodyParser.json());
     app.use(Passport.initialize());
 
-    app.route('/session/?')
+    app.route('/srv/session/?')
         .post(handleSessionStart)
         .get(handleSessionRetrieval)
         .delete(handleSessionTermination);
-    app.route('/session/htpasswd/?')
+    app.route('/srv/session/privacy/?')
+        .get(handlePrivacyRequest);
+    app.route('/srv/session/htpasswd/?')
         .post(handleHTPasswdRequest);
-    app.route('/session/:provider/:callback?/?')
+    app.route('/srv/session/:provider/:callback?/?')
         .get(handleOAuthTestRequest)
         .get(handleOAuthActivationRequest)
         .get(handleOAuthRequest);
@@ -392,6 +394,21 @@ function handleOAuthActivationRequest(req, res, done) {
 }
 
 /**
+ * Handle privacy policy
+ *
+ * @param  {Request}   req
+ * @param  {Response}  res
+ */
+function handlePrivacyRequest(req, res) {
+    var path = `${__dirname}/templates/privacy.ejs`;
+    FS.readFileAsync(path, 'utf-8').then((text) => {
+        var fn = _.template(text);
+        var html = fn({});
+        res.type('html').send(html);
+    });
+}
+
+/**
  * Add authorization token to session, making sure user can  access the area
  * in question first
  *
@@ -468,7 +485,7 @@ function authenticateThruPassport(req, res, system, server, params) {
             clientID: server.settings.oauth.client_id,
             clientSecret: server.settings.oauth.client_secret,
             baseURL: server.settings.oauth.base_url,
-            callbackURL: `${address}/session/${provider}/callback/`,
+            callbackURL: `${address}/srv/session/${provider}/callback/`,
         });
         var options = addServerSpecificOptions(server, params, {
             session: false,
@@ -492,7 +509,11 @@ function authenticateThruPassport(req, res, system, server, params) {
             if (info && info.message) {
                 message = info.message;
             } else if (err && err.message) {
-                message = err.message;
+                if (err.oauthError) {
+                    message = err.oauthError.message;
+                } else {
+                    message = err.message;
+                }
             }
             reject(new HTTPError(403, { message, reason: 'access-denied' }));
         });
@@ -694,7 +715,7 @@ function findMatchingUser(server, account) {
     return Database.open().then((db) => {
         var profile = account.profile;
         var criteria = {
-            external_object: ExternalObjectUtils.createLink(server, {
+            external_object: ExternalDataUtils.createLink(server, {
                 user: { id: getProfileId(profile) },
             }),
             deleted: false,
@@ -888,30 +909,30 @@ function copyUserProperties(user, server, image, profile) {
                 settings: UserSettings.default,
             };
         };
-        ExternalObjectUtils.addLink(userAfter, server, {
+        ExternalDataUtils.addLink(userAfter, server, {
             user: { id: getProfileId(profile) }
         });
-        ExternalObjectUtils.importProperty(userAfter, server, 'type', {
+        ExternalDataUtils.importProperty(userAfter, server, 'type', {
             value: userType,
             overwrite: overwriteUserType,
         });
-        ExternalObjectUtils.importProperty(userAfter, server, 'username', {
+        ExternalDataUtils.importProperty(userAfter, server, 'username', {
             value: username,
             overwrite: 'match-previous',
         });
-        ExternalObjectUtils.importProperty(userAfter, server, 'details.name', {
+        ExternalDataUtils.importProperty(userAfter, server, 'details.name', {
             value: profile.displayName,
             overwrite: 'match-previous',
         });
-        ExternalObjectUtils.importProperty(userAfter, server, 'details.email', {
+        ExternalDataUtils.importProperty(userAfter, server, 'details.email', {
             value: email,
             overwrite: 'match-previous',
         });
-        ExternalObjectUtils.importProperty(userAfter, server, 'details.gender', {
+        ExternalDataUtils.importProperty(userAfter, server, 'details.gender', {
             value: json.gender,
             overwrite: 'match-previous',
         });
-        ExternalObjectUtils.importResource(userAfter, server, 'image', {
+        ExternalDataUtils.importResource(userAfter, server, 'image', {
             value: image,
             replace: 'match-previous'
         });
@@ -981,7 +1002,7 @@ function retrieveProfileImage(profile) {
     }
     var options = {
         json: true,
-        url: 'http://media_server/internal/import',
+        url: 'http://media_server/srv/internal/import',
         body: {
             external_url: url
         },

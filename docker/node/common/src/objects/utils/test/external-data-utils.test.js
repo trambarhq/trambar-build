@@ -1,9 +1,9 @@
 var _ = require('lodash');
 var Chai = require('chai'), expect = Chai.expect;
 
-var ExternalObjectUtils = require('objects/utils/external-object-utils.js');
+var ExternalDataUtils = require('objects/utils/external-data-utils.js');
 
-describe('ExternalObjectUtils', function() {
+describe('ExternalDataUtils', function() {
     describe('#createLink()', function() {
         it('should create a link object', function() {
             var server = {
@@ -11,7 +11,7 @@ describe('ExternalObjectUtils', function() {
                 type: 'gitlab',
                 details: {}
             };
-            var link = ExternalObjectUtils.createLink(server, {
+            var link = ExternalDataUtils.createLink(server, {
                 project: { id: 1 }
             });
             expect(link).to.deep.equal({
@@ -31,12 +31,12 @@ describe('ExternalObjectUtils', function() {
             var repo = {
                 id: 4,
                 external: [
-                    ExternalObjectUtils.createLink(server, {
+                    ExternalDataUtils.createLink(server, {
                         project: { id: 1 }
                     })
                 ]
             };
-            var link = ExternalObjectUtils.extendLink(server, repo, {
+            var link = ExternalDataUtils.extendLink(server, repo, {
                 commit: { id: 'abcdefg' }
             });
             expect(link).to.deep.equal({
@@ -57,7 +57,7 @@ describe('ExternalObjectUtils', function() {
             var repo = {
                 id: 4,
             };
-            ExternalObjectUtils.addLink(repo, server, {
+            ExternalDataUtils.addLink(repo, server, {
                 project: { id: 1 },
             });
             expect(repo).to.deep.equal({
@@ -93,7 +93,7 @@ describe('ExternalObjectUtils', function() {
                 id: 45,
                 details: {},
             };
-            ExternalObjectUtils.inheritLink(commit, server, repo, {
+            ExternalDataUtils.inheritLink(commit, server, repo, {
                 commit: { id: 'abcdefg' },
             });
             expect(commit).to.deep.equal({
@@ -127,7 +127,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLink(repo, server);
+            var link = ExternalDataUtils.findLink(repo, server);
             expect(link).to.equal(repo.external[0]);
         })
         it('should find a link with a particular key', function() {
@@ -146,7 +146,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLink(repo, server, {
+            var link = ExternalDataUtils.findLink(repo, server, {
                 project: { id: 1 }
             });
             expect(link).to.equal(repo.external[0]);
@@ -167,7 +167,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLink(repo, server, {
+            var link = ExternalDataUtils.findLink(repo, server, {
                 project: { id: 3 }
             });
             expect(link).to.be.null;
@@ -185,7 +185,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByServerType(repo, 'gitlab');
+            var link = ExternalDataUtils.findLinkByServerType(repo, 'gitlab');
             expect(link).to.equal(repo.external[0]);
         })
         it('should return null when there is no link of specified type', function() {
@@ -199,7 +199,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByServerType(repo, 'github');
+            var link = ExternalDataUtils.findLinkByServerType(repo, 'github');
             expect(link).to.be.null;
         })
     })
@@ -216,7 +216,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByRelations(issue, 'project', 'issue');
+            var link = ExternalDataUtils.findLinkByRelations(issue, 'project', 'issue');
             expect(link).to.equal(issue.external[0]);
         })
         it('should return null when there is no link with specified relations', function() {
@@ -230,7 +230,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByServerType(repo, 'project', 'issue');
+            var link = ExternalDataUtils.findLinkByServerType(repo, 'project', 'issue');
             expect(link).to.be.null;
         })
     })
@@ -257,7 +257,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByRelative(issue, repo);
+            var link = ExternalDataUtils.findLinkByRelative(issue, repo);
             expect(link).to.equal(issue.external[0]);
         })
         it('should find a match when provided with additional relations', function() {
@@ -282,7 +282,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByRelative(issue, repo, 'project');
+            var link = ExternalDataUtils.findLinkByRelative(issue, repo, 'project');
             expect(link).to.equal(issue.external[0]);
         })
         it('should not find a match when the objects are from different servers', function() {
@@ -307,7 +307,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByRelative(issue, repo);
+            var link = ExternalDataUtils.findLinkByRelative(issue, repo);
             expect(link).to.be.null;
         })
         it('should not find a match when the relations do not match', function() {
@@ -332,7 +332,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            var link = ExternalObjectUtils.findLinkByRelative(issue, repo, 'project');
+            var link = ExternalDataUtils.findLinkByRelative(issue, repo, 'project');
             expect(link).to.be.null;
         })
     })
@@ -353,7 +353,7 @@ describe('ExternalObjectUtils', function() {
                     }
                 ]
             };
-            ExternalObjectUtils.removeLink(repo, server);
+            ExternalDataUtils.removeLink(repo, server);
             expect(repo).to.have.property('external').that.has.a.lengthOf(0);
         })
     })
@@ -367,8 +367,8 @@ describe('ExternalObjectUtils', function() {
             var repo = {
                 name: 'evil',
             };
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'always'
             });
@@ -383,8 +383,8 @@ describe('ExternalObjectUtils', function() {
             var repo = {
                 name: 'evil',
             };
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'never'
             });
@@ -397,8 +397,8 @@ describe('ExternalObjectUtils', function() {
                 details: {}
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'never'
             });
@@ -411,8 +411,8 @@ describe('ExternalObjectUtils', function() {
                 details: {}
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'match-previous'
             });
@@ -425,18 +425,18 @@ describe('ExternalObjectUtils', function() {
                 details: {}
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'match-previous'
             });
             expect(repo).to.have.property('name').that.equal('good');
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'bad',
                 overwrite: 'match-previous'
             });
             expect(repo).to.have.property('name').that.equal('bad');
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'ugly',
                 overwrite: 'match-previous'
             });
@@ -449,14 +449,14 @@ describe('ExternalObjectUtils', function() {
                 details: {}
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'good',
                 overwrite: 'match-previous'
             });
             expect(repo).to.have.property('name').that.equal('good');
             repo.name = 'sad';
-            ExternalObjectUtils.importProperty(repo, server, 'name', {
+            ExternalDataUtils.importProperty(repo, server, 'name', {
                 value: 'bad',
                 overwrite: 'match-previous'
             });
@@ -472,13 +472,13 @@ describe('ExternalObjectUtils', function() {
             };
             var res = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res,
                 replace: 'always'
@@ -493,25 +493,25 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'always'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res2,
                 replace: 'always'
@@ -526,25 +526,25 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'always'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: null,
                 replace: 'always'
@@ -559,25 +559,25 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'never'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res2,
                 replace: 'never'
@@ -592,37 +592,37 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var res3 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 100,
                 height: 200,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'match-previous'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res2,
                 replace: 'match-previous'
             });
             expect(repo).to.have.deep.property('details.resources').to.have.lengthOf(1).that.contains(res2);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res3,
                 replace: 'match-previous'
@@ -637,44 +637,44 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var res3 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 100,
                 height: 200,
             };
             var resX = {
                 type: 'image',
-                url: '/media/images/zxcvbn',
+                url: '/srv/media/images/zxcvbn',
                 width: 30,
                 height: 30,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'match-previous'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
             repo.details.resources[0] = resX;
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res2,
                 replace: 'match-previous'
             });
             expect(repo).to.have.deep.property('details.resources').to.have.lengthOf(1).that.contains(resX);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res3,
                 replace: 'match-previous'
@@ -689,38 +689,38 @@ describe('ExternalObjectUtils', function() {
             };
             var res1 = {
                 type: 'image',
-                url: '/media/images/abcdefg',
+                url: '/srv/media/images/abcdefg',
                 width: 10,
                 height: 20,
             };
             var res2 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 10,
                 height: 20,
             };
             var res3 = {
                 type: 'image',
-                url: '/media/images/qwerty',
+                url: '/srv/media/images/qwerty',
                 width: 100,
                 height: 200,
             };
             var repo = {};
-            ExternalObjectUtils.addLink(repo, server);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.addLink(repo, server);
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res1,
                 replace: 'match-previous'
             });
             expect(repo).to.have.deep.property('details.resources').that.contains(res1);
             repo.details.resources.splice(0);
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res2,
                 replace: 'match-previous'
             });
             expect(repo).to.not.have.deep.property('details.resources');
-            ExternalObjectUtils.importResource(repo, server, {
+            ExternalDataUtils.importResource(repo, server, {
                 type: 'image',
                 value: res3,
                 replace: 'match-previous'
@@ -762,7 +762,7 @@ describe('ExternalObjectUtils', function() {
                     },
                 ]
             };
-            var server = ExternalObjectUtils.findCommonServer(issue, repo);
+            var server = ExternalDataUtils.findCommonServer(issue, repo);
             expect(server).to.deep.equal({ id: 3, type: 'gitlab' });
         })
         it('should return null when objects are not connected to the same server', function() {
@@ -793,7 +793,7 @@ describe('ExternalObjectUtils', function() {
                     },
                 ]
             };
-            var server = ExternalObjectUtils.findCommonServer(issue, repo);
+            var server = ExternalDataUtils.findCommonServer(issue, repo);
             expect(server).to.be.null;
         })
     })

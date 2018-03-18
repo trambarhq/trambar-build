@@ -49,7 +49,7 @@ module.exports = React.createClass({
      */
     getDefaultProps: function() {
         return {
-            basePath: '',
+            basePath: '/srv/data',
             discoveryFlags: {},
             retrievalFlags: {},
             hasConnection: true,
@@ -115,7 +115,7 @@ module.exports = React.createClass({
         var address = location.address;
         var session = getSession(address);
         if (!session.promise) {
-            var url = `${address}/session/`;
+            var url = `${address}/srv/session/`;
             var options = { responseType: 'json', contentType: 'json' };
             session.promise = HTTPRequest.fetch('POST', url, { area }, options).then((res) => {
                 _.assign(session, res.session);
@@ -155,7 +155,7 @@ module.exports = React.createClass({
         if (!handle) {
             return Promise.resolve(false);
         }
-        var url = `${address}/session/`;
+        var url = `${address}/srv/session/`;
         var options = { responseType: 'json' };
         return HTTPRequest.fetch('GET', url, { handle }, options).then((res) => {
             _.assign(session, res.session);
@@ -191,7 +191,7 @@ module.exports = React.createClass({
         if (!handle) {
             return Promise.resolve(false);
         }
-        var url = `${address}/session/htpasswd/`;
+        var url = `${address}/srv/session/htpasswd/`;
         var payload = { handle, username, password };
         var options = { responseType: 'json', contentType: 'json' };
         return HTTPRequest.fetch('POST', url, payload, options).then((res) => {
@@ -223,12 +223,17 @@ module.exports = React.createClass({
             return Promise.resolve(null);
         }
         return Promise.resolve(session.promise).then(() => {
-            var url = `${address}/session/`;
+            var url = `${address}/srv/session/`;
             var options = { responseType: 'json', contentType: 'json' };
-            return HTTPRequest.fetch('DELETE', url, { handle }, options).then(() => {
+            return HTTPRequest.fetch('DELETE', url, { handle }, options).catch((err) => {
+                // clean cached information anyway, given when we failed to
+                // remove the session in the backend
+                console.error(err);
+            }).then(() => {
                 destroySession(session);
                 this.clearRecentSearches(address);
                 this.clearCachedObjects(address);
+                this.triggerExpirationEvent(session);
                 return null;
             });
         });
@@ -248,7 +253,7 @@ module.exports = React.createClass({
         if (!session.promise) {
             var parentSession = getSession(address);
             var handle = parentSession.handle;
-            var url = `${address}/session/`;
+            var url = `${address}/srv/session/`;
             var options = { responseType: 'json', contentType: 'json' };
             session.promise = HTTPRequest.fetch('POST', url, { area, handle }, options).then((res) => {
                 _.assign(session, res.session);
@@ -277,7 +282,7 @@ module.exports = React.createClass({
         var address = location.address;
         var session = getSession(address);
         if (!session.promise) {
-            var url = `${address}/session/`;
+            var url = `${address}/srv/session/`;
             var options = { responseType: 'json', contentType: 'json' };
             session.promise = HTTPRequest.fetch('GET', url, { handle }, options).then((res) => {
                 session.handle = handle;
@@ -326,7 +331,7 @@ module.exports = React.createClass({
      */
     endMobileSession: function(location, handle) {
         var address = location.address;
-        var url = `${address}/session/`;
+        var url = `${address}/srv/session/`;
         var options = { responseType: 'json', contentType: 'json' };
         return HTTPRequest.fetch('DELETE', url, { handle }, options).then(() => {
             return null;
@@ -355,7 +360,7 @@ module.exports = React.createClass({
         } else if (type === 'test') {
             query += '&test=1';
         }
-        var url = `${address}/session/${oauthServer.type}/?${query}`;
+        var url = `${address}/srv/session/${oauthServer.type}/?${query}`;
         return url;
     },
 
@@ -494,16 +499,22 @@ module.exports = React.createClass({
                 if (search.remote) {
                     // remote only search always block
                     blocking = true;
+                } else if (blocking === undefined) {
+                    // if blocking is not specified, then we don't block
+                    // when there're certain number of cached records
+                    // (i.e. the minimum is met--see constructor of Search)
+                    blocking = !newSearch.isSufficientlyCached();
                 }
 
-                // if there're enough cached records, return them immediately,
-                // without waiting for the remote search to finish
-                //
-                // if the remote search yield new data, an onChange event will
-                // trigger a new search
-                if (blocking === false || newSearch.isSufficientlyCached()) {
+                if (!blocking) {
+                    // return cached results immediately, without waiting for
+                    // the remote search to finish
+                    //
+                    // if the remote search yield new data, an onChange event will
+                    // trigger a new search
                     return newSearch.results;
                 } else {
+                    // wait for remote search to finish
                     return remoteSearchPromise.then(() => {
                         return newSearch.results;
                     });
@@ -592,17 +603,29 @@ module.exports = React.createClass({
     /**
      * Remove recent searches on schema
      *
-     * @param  {String} address
-     * @param  {String} schema
+     * @param  {String|undefined} address
+     * @param  {String|undefined} schema
      */
     clear: function(address, schema) {
         this.updateList('recentSearchResults', (before) => {
-            var after = _.filter(before, (search) => {
-                if (_.isMatch(search, { address, schema })) {
-                    return false;
-                }
-                return true;
-            });
+            var after;
+            if (address && schema) {
+                after = _.filter(before, (search) => {
+                    if (_.isMatch(search, { address, schema })) {
+                        return false;
+                    }
+                    return true;
+                });
+            } else if (address) {
+                after = _.filter(before, (search) => {
+                    if (_.isMatch(search, { address })) {
+                        return false;
+                    }
+                    return true;
+                });
+            } else {
+                after = [];
+            }
             return after;
         });
     },
@@ -619,19 +642,20 @@ module.exports = React.createClass({
         return this.reconcileChanges(address, changes).then(() => {
             var changed = false;
             if (changes) {
-                _.forIn(changes, (idList, name) => {
+                _.forIn(changes, (changedObjects, name) => {
                     var parts = _.split(name, '.');
                     var location = {
                         address: address,
                         schema: parts[0],
                         table: parts[1]
                     };
-                    var ids = _.filter(idList, (id) => {
+                    var ids = _.filter(changedObjects.ids, (id, index) => {
+                        var gn = changedObjects.gns[index];
                         if (this.isBeingSaved(location, id)) {
                             // change notification has arrived even before the
                             // save request has finished
                             return false;
-                        } else if (this.isRecentlySaved(location, id)) {
+                        } else if (this.isRecentlySaved(location, id, gn)) {
                             // change notification arrived shortly after save
                             // operation finishes
                             return false;
@@ -725,17 +749,15 @@ module.exports = React.createClass({
      *
      * @param  {Object} location
      * @param  {Number} id
+     * @param  {Number} gn
      *
      * @return {Boolean}
      */
-    isRecentlySaved: function(location, id) {
+    isRecentlySaved: function(location, id, gn) {
         return _.some(this.recentStorageResults, (storage) => {
             if (storage.matchLocation(location)) {
-                if (_.some(storage.results, { id })) {
-                    var elapsed = storage.getTimeElapsed();
-                    if (elapsed < 1) {
-                        return true;
-                    }
+                if (_.some(storage.results, { id, gn })) {
+                    return true;
                 }
             }
         });
@@ -751,6 +773,12 @@ module.exports = React.createClass({
      */
     reconcileChanges: function(address, changes) {
         return Promise.each(this.state.changeQueue, (change) => {
+            if (change.onConflict === false) {
+                // don't need to reconcile object removal
+                // we still want it deleted even if it has changed
+                return;
+            }
+
             var affectedIds;
             if (!changes) {
                 if (!address || change.location.address === address) {
@@ -763,10 +791,10 @@ module.exports = React.createClass({
                 if (change.location.address === address) {
                     if (!change.dispatched) {
                         var name = `${change.location.schema}.${change.location.table}`;
-                        var idList = changes[name];
-                        if (idList) {
+                        var changedObjects = changes[name];
+                        if (changedObjects) {
                             // look for changed objects that were changed remotely
-                            affectedIds = _.filter(idList, (id, index) => {
+                            affectedIds = _.filter(changedObjects.ids, (id, index) => {
                                 var index = _.findIndex(change.objects, { id });
                                 if (index !== -1) {
                                     if (!change.removed[index]) {
@@ -1184,6 +1212,7 @@ module.exports = React.createClass({
         }).catch((err) => {
             // signal that the change was removed
             this.triggerChangeEvent();
+            throw err;
         });
     },
 
@@ -1287,7 +1316,7 @@ module.exports = React.createClass({
      */
     performRemoteAction: function(location, action, payload) {
         var address = location.address;
-        var prefix = this.props.basePath;
+        var basePath = this.props.basePath;
         var schema = location.schema;
         var table = location.table;
         if (!schema) {
@@ -1302,7 +1331,7 @@ module.exports = React.createClass({
         } else if (action === 'discovery') {
             flags = _.omit(this.props.discoveryFlags, 'include_uncommitted');
         }
-        var url = `${address}${prefix}/data/${action}/${schema}/${table}/`;
+        var url = `${address}${basePath}/${action}/${schema}/${table}/`;
         var session = getSession(address);
         var req = _.assign({}, payload, flags, { auth_token: session.token });
         var options = {

@@ -2,7 +2,7 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var Database = require('database');
 var TaskLog = require('task-log');
-var ExternalObjectUtils = require('objects/utils/external-object-utils');
+var ExternalDataUtils = require('objects/utils/external-data-utils');
 
 var Transport = require('gitlab-adapter/transport');
 var RepoAssociation = require('gitlab-adapter/repo-association');
@@ -30,7 +30,9 @@ function installHooks(db, host) {
                 server_id: server.id,
                 server: server.name,
             });
-            var serverAssociations = _.filter(associations, { server });
+            var serverAssociations = _.filter(associations, (sa) => {
+                return (sa.server === server);
+            });
             var added = []
             return Promise.each(serverAssociations, (sa, index, count) => {
                 var { repo, project }  = sa;
@@ -96,7 +98,7 @@ function installProjectHook(host, server, repo, project) {
         return Promise.resolve();
     }
     console.log(`Installing web-hook on repo for project: ${repo.name} -> ${project.name}`);
-    var repoLink = ExternalObjectUtils.findLink(repo, server);
+    var repoLink = ExternalDataUtils.findLink(repo, server);
     return fetchHooks(server, repoLink.project.id).then((glHooks) => {
         var url = getHookEndpoint(host, server, repo, project);
         var hookProps = getHookProps(url);
@@ -138,7 +140,7 @@ function removeProjectHook(host, server, repo, project) {
         return Promise.resolve();
     }
     console.log(`Removing web-hook on repo for project: ${repo.name} -> ${project.name}`);
-    var repoLink = ExternalObjectUtils.findLink(repo, server);
+    var repoLink = ExternalDataUtils.findLink(repo, server);
     return fetchHooks(server, repoLink.project.id).each((glHook) => {
         var url = getHookEndpoint(host, server, repo, project);
         if (glHook.url === url) {
@@ -204,5 +206,5 @@ function getHookProps(url) {
 }
 
 function getHookEndpoint(host, server, repo, project) {
-    return `${host}/gitlab/hook/${server.id}/${repo.id}/${project.id}`;
+    return `${host}/srv/gitlab/hook/${server.id}/${repo.id}/${project.id}`;
 }

@@ -7,7 +7,7 @@ var Database = require('database');
 var Shutdown = require('shutdown');
 var TaskQueue = require('utils/task-queue');
 var StoryTypes = require('objects/types/story-types');
-var ExternalObjectUtils = require('objects/utils/external-object-utils');
+var ExternalDataUtils = require('objects/utils/external-data-utils');
 
 var RepoAssociation = require('gitlab-adapter/repo-association');
 var HookManager = require('gitlab-adapter/hook-manager');
@@ -44,16 +44,16 @@ function start() {
                 var app = Express();
                 app.use(BodyParser.json());
                 app.set('json spaces', 2);
-                app.post('/gitlab/hook/:serverId/:repoId/:projectId', handleHookCallback);
+                app.post('/srv/gitlab/hook/:serverId/:repoId/:projectId', handleHookCallback);
                 server = app.listen(80, () => {
                     resolve();
                 });
             });
         }).then(() => {
-            // install hooks
-            // TODO: remove delay put in to keep hooks from getting zap during
-            //       nodemon restart
-            return getServerAddress(db).delay(1000).then((host) => {
+            // install hooks--after a short delay during development to keep
+            // hooks from getting zapped while nodemon restarts
+            var delay = (process.env.NODE_ENV === 'production') ? 0 : 1000;
+            return getServerAddress(db).delay(delay).then((host) => {
                 return HookManager.installHooks(db, host);
             });
         }).then(() => {
@@ -222,7 +222,7 @@ function connectRepositories(db, project, repoIds) {
             deleted: false
         };
         return Repo.find(db, 'global', criteria, '*').each((repo) => {
-            var repoLink = ExternalObjectUtils.findLinkByServerType(repo, 'gitlab');
+            var repoLink = ExternalDataUtils.findLinkByServerType(repo, 'gitlab');
             var criteria = {
                 id: repoLink.server_id,
                 deleted: false
@@ -263,7 +263,7 @@ function disconnectRepositories(db, project, repoIds) {
             deleted: false
         };
         return Repo.find(db, 'global', criteria, '*').each((repo) => {
-            var repoLink = ExternalObjectUtils.findLinkByServerType(repo, 'gitlab');
+            var repoLink = ExternalDataUtils.findLinkByServerType(repo, 'gitlab');
             var criteria = {
                 id: repoLink.server_id,
                 deleted: false
@@ -285,33 +285,38 @@ function disconnectRepositories(db, project, repoIds) {
  * @return {Promise|undefined}
  */
 function handleStoryChangeEvent(db, event) {
+    if (event.current.mtime === event.current.etime) {
+        // change is caused by a prior export
+        return;
+    }
+    if (event.current.mtime === event.current.itime) {
+        // change is caused by an import
+        return;
+    }
     var exporting = false;
-    console.log('CHANGE: ', event.id, event.diff);
     if (event.current.type === 'issue') {
-        if (event.diff.type) {
-            // this is just the event emitted immediately after
-            // the issue was successfully exported
-        } else {
-            if (event.diff.details) {
-                exporting = true;
-            }
+        if (event.diff.details) {
+            // title or labels might have changed
+            exporting = true;
         }
     } else if (_.includes(StoryTypes.trackable, event.current.type)) {
         if (event.current.published && event.current.ready) {
-            var issueLink = ExternalObjectUtils.findLinkByServerType(event.current, 'gitlab');
+            var issueLink = ExternalDataUtils.findLinkByServerType(event.current, 'gitlab');
             if (issueLink) {
+                // a story that with a unrealized issue link (id = 0)
                 exporting = true;
             }
         }
     }
-    if (exporting) {
-        return Story.findOne(db, event.schema, { id: event.id }, '*').then((story) => {
-            return Project.findOne(db, 'global', { name: event.schema }, '*').then((project) => {
-                console.log(`Exporting story ${story.id}`);
-                return IssueExporter.exportStory(db, project, story);
-            });
-        });
+    if (!exporting) {
+        return;
     }
+    return Story.findOne(db, event.schema, { id: event.id }, '*').then((story) => {
+        return Project.findOne(db, 'global', { name: event.schema }, '*').then((project) => {
+            console.log(`Exporting story ${story.id}`);
+            return IssueExporter.exportStory(db, project, story);
+        });
+    });
 }
 
 /**

@@ -3,7 +3,7 @@ var Promise = require('bluebird');
 var Moment = require('moment');
 var TaskLog = require('task-log');
 var MarkdownExporter = require('utils/markdown-exporter');
-var ExternalObjectUtils = require('objects/utils/external-object-utils');
+var ExternalDataUtils = require('objects/utils/external-data-utils');
 
 var Transport = require('gitlab-adapter/transport');
 
@@ -30,7 +30,7 @@ module.exports = {
 function exportStory(db, project, story) {
     var criteria = { deleted: false };
     return System.findOne(db, 'global', criteria, '*').then((system) => {
-        var issueLink = ExternalObjectUtils.findLinkByServerType(story, 'gitlab');
+        var issueLink = ExternalDataUtils.findLinkByServerType(story, 'gitlab');
         if (!issueLink) {
             return null;
         }
@@ -44,7 +44,7 @@ function exportStory(db, project, story) {
                 throw new Error('Server not found');
             }
             var criteria = {
-                external_object: ExternalObjectUtils.createLink(server, {
+                external_object: ExternalDataUtils.createLink(server, {
                     user: { id: glUserId }
                 }),
                 deleted: false,
@@ -54,27 +54,19 @@ function exportStory(db, project, story) {
                     throw new Error('User not found');
                 }
                 return fetchIssue(server, glProjectId, glIssueNumber).then((glIssue) => {
-                    var glIssueAfter = copyIssueProperties(glIssue, server, system, project, story);
-                    if (_.isEqual(glIssueAfter, glIssue)) {
+                    var glIssueAfter = exportIssueProperties(glIssue, server, system, project, story);
+                    if (glIssueAfter === glIssue) {
                         return null;
                     }
                     return saveIssue(server, glProjectId, glIssueNumber, glIssueAfter, glUserId).then((glIssue) => {
-                        var storyAfter = _.cloneDeep(story);
-                        var issueLinkAfter = ExternalObjectUtils.findLink(storyAfter, server);
-                        _.set(issueLinkAfter, 'issue.id', glIssue.id);
-                        _.set(issueLinkAfter, 'issue.number', glIssue.iid);
-                        _.set(storyAfter, 'type', 'issue');
-                        _.set(storyAfter, 'details.exported', true);
-                        if (_.isEqual(story, storyAfter)) {
-                            return story;
-                        }
                         var schema = project.name;
+                        var storyAfter = copyIssueProperties(story, server, glIssue);
                         return Story.updateOne(db, schema, storyAfter).then((story) => {
                             if (!newIssue) {
                                 return story;
                             }
-                            var reaction = copyTrackingReactionProperties(null, server, project, story, user);
-                            return Reaction.insertOne(db, schema, reaction).then((reaction) => {
+                            var reactionNew = copyTrackingReactionProperties(null, server, project, story, user);
+                            return Reaction.insertOne(db, schema, reactionNew).then((reaction) => {
                                 return story;
                             });
                         });
@@ -89,7 +81,7 @@ function exportStory(db, project, story) {
 }
 
 /**
- * Create a Gitlab issue object from information in story
+ * Copy information in a story into a Gitlab issue object
  *
  * @param  {Object} glIssue
  * @param  {Story} story
@@ -98,7 +90,7 @@ function exportStory(db, project, story) {
  *
  * @return {Object}
  */
-function copyIssueProperties(glIssue, server, system, project, story) {
+function exportIssueProperties(glIssue, server, system, project, story) {
     var markdown = story.details.markdown;
     var textVersions = _.filter(story.details.text);
     var text = _.join(textVersions, '\n\n');
@@ -110,23 +102,53 @@ function copyIssueProperties(glIssue, server, system, project, story) {
     var contents = MarkdownExporter.attachResources(text, resources, address);
 
     var glIssueAfter = _.clone(glIssue) || {};
-    ExternalObjectUtils.exportProperty(story, server, 'title', glIssueAfter, {
+    ExternalDataUtils.exportProperty(story, server, 'title', glIssueAfter, {
         value: story.details.title,
         overwrite: 'match-previous',
     });
-    ExternalObjectUtils.exportProperty(story, server, 'description', glIssueAfter, {
+    ExternalDataUtils.exportProperty(story, server, 'description', glIssueAfter, {
         value: contents,
         overwrite: 'match-previous',
     });
-    ExternalObjectUtils.exportProperty(story, server, 'confidential', glIssueAfter, {
+    ExternalDataUtils.exportProperty(story, server, 'confidential', glIssueAfter, {
         value: !story.public,
         overwrite: 'match-previous',
     });
-    ExternalObjectUtils.exportProperty(story, server, 'labels', glIssueAfter, {
+    ExternalDataUtils.exportProperty(story, server, 'labels', glIssueAfter, {
         value: story.details.labels,
         overwrite: 'match-previous',
     });
+    if (_.isEqual(glIssueAfter, glIssue)) {
+        return glIssue;
+    }
     return glIssueAfter;
+}
+
+/**
+ * Add issue properties to exported story
+ *
+ * @param  {Story} story
+ * @param  {Server} server
+ * @param  {Repo} repo
+ * @param  {Object} glIssue
+ *
+ * @return {Story}
+ */
+function copyIssueProperties(story, server, glIssue) {
+    var storyAfter = _.cloneDeep(story);
+    var issueLink = ExternalDataUtils.findLink(storyAfter, server);
+    issueLink.issue.id = glIssue.id;
+    issueLink.issue.number = glIssue.iid;
+    ExternalDataUtils.importProperty(storyAfter, server, 'type', {
+        value: 'issue',
+        overwrite: 'always'
+    });
+    ExternalDataUtils.importProperty(storyAfter, server, 'details.exported', {
+        value: true,
+        overwrite: 'always'
+    });
+    storyAfter.etime = new String('NOW()');
+    return storyAfter;
 }
 
 /**
@@ -141,33 +163,36 @@ function copyIssueProperties(glIssue, server, system, project, story) {
  * @return {Reaction}
  */
 function copyTrackingReactionProperties(reaction, server, project, story, user) {
-    debugger;
     var reactionAfter = _.clone(reaction) || {};
-    ExternalObjectUtils.inheritLink(reactionAfter, server, story);
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'type', {
+    ExternalDataUtils.inheritLink(reactionAfter, server, story);
+    ExternalDataUtils.importProperty(reactionAfter, server, 'type', {
         value: 'tracking',
         overwrite: 'always',
     });
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'story_id', {
+    ExternalDataUtils.importProperty(reactionAfter, server, 'story_id', {
         value: story.id,
         overwrite: 'always',
     });
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'user_id', {
+    ExternalDataUtils.importProperty(reactionAfter, server, 'user_id', {
         value: user.id,
         overwrite: 'always',
     });
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'public', {
+    ExternalDataUtils.importProperty(reactionAfter, server, 'public', {
         value: story.public,
         overwrite: 'always',
     });
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'published', {
+    ExternalDataUtils.importProperty(reactionAfter, server, 'published', {
         value: true,
         overwrite: 'always',
     });
-    ExternalObjectUtils.importProperty(reactionAfter, server, 'ptime', {
+    ExternalDataUtils.importProperty(reactionAfter, server, 'ptime', {
         value: Moment().toISOString(),
         overwrite: 'always',
     });
+    if (_.isEqual(reactionAfter, reaction)) {
+        return reaction;
+    }
+    reactionAfter.itime = new String('NOW()');
     return reactionAfter;
 }
 

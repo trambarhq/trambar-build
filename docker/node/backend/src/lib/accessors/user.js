@@ -20,6 +20,8 @@ module.exports = _.create(ExternalData, {
         disabled: Boolean,
         settings: Object,
         external: Array(Object),
+        itime: String,
+        etime: String,
     },
     criteria: {
         id: Number,
@@ -58,6 +60,8 @@ module.exports = _.create(ExternalData, {
                 disabled boolean NOT NULL DEFAULT false,
                 settings jsonb NOT NULL DEFAULT '{}',
                 external jsonb[] NOT NULL DEFAULT '{}',
+                itime timestamp,
+                etime timestamp,
                 PRIMARY KEY (id)
             );
             CREATE UNIQUE INDEX ON ${table} (username) WHERE deleted = false;
@@ -96,7 +100,7 @@ module.exports = _.create(ExternalData, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted', 'requested_project_ids', 'external' ];
+            var propNames = [ 'deleted', 'requested_project_ids', 'external', 'mtime', 'itime', 'etime' ];
             return this.createNotificationTriggers(db, schema, propNames).then(() => {
                 return this.createResourceCoalescenceTrigger(db, schema, []).then(() => {
                     var Task = require('accessors/task');
@@ -444,32 +448,37 @@ module.exports = _.create(ExternalData, {
      * @return {Promise}
      */
     updateContentDeletion: function(db, schema, usersBefore, usersAfter) {
-        var deletedUserIds = [];
-        var undeletedUserIds = [];
-        _.each(usersBefore, (userBefore, index) => {
-            if (userBefore) {
-                var userAfter = usersAfter[index];
-                if (!userBefore.deleted && userAfter.deleted) {
-                    deletedUserIds.push(userAfter.id);
-                } else if (userBefore.deleted && !userAfter.deleted) {
-                    undeletedUserIds.push(userAfter.id);
+        return Promise.try(() => {
+            var deletedUsers = _.filter(usersAfter, (userAfter, index) => {
+                var userBefore = usersAfter[index];
+                if (userBefore) {
+                    return userAfter.deleted && !userBefore.deleted;
                 }
+            });
+            var undeletedUsers = _.filter(usersAfter, (userAfter, index) => {
+                var userBefore = usersAfter[index];
+                if (userBefore) {
+                    return !userAfter.deleted && userBefore.deleted;
+                }
+            });
+            if (_.isEmpty(deletedUsers) && _.isEmpty(undeletedUsers)) {
+                return;
             }
-        });
-        if (!_.isEmpty(deletedUserIds) || !_.isEmpty(undeletedUserIds)) {
+
             var Project = require('accessors/project');
             var Story = require('accessors/story');
             var Reaction = require('accessors/reaction');
-            var criteriaP = { deleted: false };
-            return Project.find(db, schema, criteriaP, 'name').each((project) => {
+            // go through each project
+            var criteria = { deleted: false };
+            return Project.find(db, schema, criteria, 'name').each((project) => {
                 var contentSchema = project.name;
                 return Promise.all([
-                    Story.deleteAssociated(db, contentSchema, deletedUserIds),
-                    Story.restoreAssociated(db, contentSchema, undeletedUserIds),
-                    Reaction.deleteAssociated(db, contentSchema, deletedUserIds),
-                    Reaction.restoreAssociated(db, contentSchema, undeletedUserIds),
+                    Story.deleteAssociated(db, contentSchema, { user: deletedUsers }),
+                    Story.restoreAssociated(db, contentSchema, { user: undeletedUsers }),
+                    Reaction.deleteAssociated(db, contentSchema, { user: deletedUsers }),
+                    Reaction.restoreAssociated(db, contentSchema, { user: undeletedUsers }),
                 ]);
             });
-        }
+        });
     },
 });
