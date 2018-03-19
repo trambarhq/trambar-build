@@ -226,32 +226,43 @@ function importProperty(object, server, path, prop) {
         return;
     }
     var currentValue = _.get(object, path);
-    if (prop.overwrite === 'always') {
+    var overwrite = prop.overwrite;
+    var exchangeKey;
+    var colonIndex = _.indexOf(overwrite, ':');
+    if (colonIndex !== -1) {
+        exchangeKey = overwrite.substr(colonIndex + 1);
+        overwrite = overwrite.substr(0, colonIndex);
+    }
+    if (overwrite === 'always') {
         if (prop.value !== undefined) {
             _.set(object, path, prop.value);
         } else {
             _.unset(object, path);
         }
-    } else if (prop.overwrite === 'never') {
+    } else if (overwrite === 'never') {
         if (currentValue === undefined) {
             if (prop.value !== undefined) {
                 _.set(object, path, prop.value);
             }
         }
-    } else if (prop.overwrite === 'match-previous') {
+    } else if (overwrite === 'match-previous') {
         var previous = getPreviousValues(object, server);
-        var previousValue = _.get(previous, path);
+        var previousValue = _.get(previous, exchangeKey);
         if (_.isEqual(currentValue, previousValue)) {
             if (prop.value !== undefined) {
                 _.set(object, path, prop.value);
-                _.set(previous, path, prop.value);
+                _.set(previous, exchangeKey, prop.value);
             } else {
                 _.unset(object, path);
-                _.unset(previous, path);
+                _.unset(previous, exchangeKey);
             }
+        } else {
+            console.log('Import conflict');
+            console.log('Expected: ', previousValue);
+            console.log('Actual: ', currentValue);
         }
     } else {
-        throw new Error('Unknown option: ' + prop.overwrite);
+        throw new Error('Unknown option: ' + overwrite);
     }
 }
 
@@ -267,10 +278,12 @@ function importResource(object, server, prop) {
         return;
     }
     var path = 'details.resources';
+    var exchangeKey = 'resources';
     var resources = _.get(object, path, []);
     var index = _.findIndex(resources, { type: prop.type });
     var currentValue = resources[index];
-    if (prop.replace === 'always') {
+    var replace = prop.replace;
+    if (replace === 'always') {
         if (currentValue === undefined) {
             if (prop.value) {
                 resources.push(prop.value);
@@ -282,15 +295,15 @@ function importResource(object, server, prop) {
                 resources.splice(index, 1);
             }
         }
-    } else if (prop.replace === 'never') {
+    } else if (replace === 'never') {
         if (currentValue === undefined) {
             if (prop.value) {
                 resources.push(prop.value);
             }
         }
-    } else if (prop.replace === 'match-previous') {
+    } else if (replace === 'match-previous') {
         var previous = getPreviousValues(object, server);
-        var previousResources = _.get(previous, path, []);
+        var previousResources = _.get(previous, exchangeKey, []);
         var previousIndex = _.findIndex(previousResources, { type: prop.type });
         var previousValue = previousResources[previousIndex];
         if (_.isEqual(currentValue, previousValue)) {
@@ -308,14 +321,18 @@ function importResource(object, server, prop) {
                     previousResources.splice(previousIndex, 1);
                 }
             }
+        } else {
+            console.log('Import conflict');
+            console.log('Expected: ', previousValue);
+            console.log('Actual: ', currentValue);
         }
         if (_.isEmpty(previousResources)) {
-            _.unset(previous, path);
+            _.unset(previous, exchangeKey);
         } else {
-            _.set(previous, path, previousResources);
+            _.set(previous, exchangeKey, previousResources);
         }
     } else {
-        throw new Error('Unknown option: ' + prop.replace);
+        throw new Error('Unknown option: ' + replace);
     }
     if (_.isEmpty(resources)) {
         _.unset(object, path);
@@ -338,29 +355,37 @@ function exportProperty(object, server, path, dest, prop) {
         return;
     }
     var currentValue = _.get(dest, path);
-    if (prop.overwrite === 'always') {
+    var overwrite = prop.overwrite;
+    var exchangeKey;
+    var colonIndex = _.indexOf(overwrite, ':');
+    if (colonIndex !== -1) {
+        exchangeKey = overwrite.substr(colonIndex + 1);
+        overwrite = overwrite.substr(0, colonIndex);
+    }
+    if (overwrite === 'always') {
         _.set(dest, path, prop.value);
-    } else if (prop.overwrite === 'never') {
+    } else if (overwrite === 'never') {
         if (currentValue === undefined) {
             _.set(dest, path, prop.value);
         }
-    } else if (prop.overwrite === 'match-previous') {
+    } else if (overwrite === 'match-previous') {
         var previous = getPreviousValues(object, server);
-        var previousValue = _.get(previous, path);
+        var previousValue = _.get(previous, exchangeKey);
         if (_.isEqual(currentValue, previousValue)) {
             _.set(dest, path, prop.value);
-            _.set(previous, path, prop.value);
+            _.set(previous, exchangeKey, prop.value);
         } else {
+            console.log('Export conflict');
             console.log('Expected: ', previousValue);
             console.log('Actual: ', currentValue);
         }
     } else {
-        throw new Error('Unknown option: ' + prop.overwrite);
+        throw new Error('Unknown option: ' + overwrite);
     }
 }
 
 /**
- * Get previously exchanged values stored in link object
+ * Get previously exchanged values
  *
  * @param  {ExternalObject} object
  * @param  {Server} server
@@ -368,11 +393,19 @@ function exportProperty(object, server, path, dest, prop) {
  * @return {Object}
  */
 function getPreviousValues(object, server) {
-    var link = findLink(object, server);
-    if (!link._previous) {
-        link._previous = {};
+    var entry = _.find(object.exchange, { server_id: server.id });
+    if (!entry) {
+        entry = {
+            type: server.type,
+            server_id: server.id,
+            previous: {}
+        };
+        if (!object.exchange) {
+            object.exchange = [];
+        }
+        object.exchange.push(entry);
     }
-    return link._previous;
+    return entry.previous;
 }
 
 /**

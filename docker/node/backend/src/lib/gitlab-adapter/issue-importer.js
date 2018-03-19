@@ -183,12 +183,12 @@ function copyIssueProperties(story, server, repo, author, glIssue) {
     // title is imported only if issue isn't confidential
     ExternalDataUtils.importProperty(storyAfter, server, 'details.title', {
         value: (glIssue.confidential) ? undefined : glIssue.title,
-        overwrite: 'match-previous',
+        overwrite: 'match-previous:title',
         ignore: exported && glIssue.confidential,
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'details.labels', {
         value: glIssue.labels,
-        overwrite: 'match-previous',
+        overwrite: 'match-previous:labels',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'details.state', {
         value: glIssue.state,
@@ -241,6 +241,7 @@ function copyIssueProperties(story, server, repo, author, glIssue) {
  */
 function copyAssignmentProperties(reaction, server, story, assignee, glIssue) {
     var reactionAfter = _.cloneDeep(reaction) || {};
+    ExternalDataUtils.inheritLink(reactionAfter, server, story);
     ExternalDataUtils.importProperty(reactionAfter, server, 'type', {
         value: 'assignment',
         overwrite: 'always',
@@ -262,7 +263,7 @@ function copyAssignmentProperties(reaction, server, story, assignee, glIssue) {
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(reactionAfter, server, 'ptime', {
-        value: Moment(glIssue.updated_at).toISOString(),
+        value: Moment(new Date(glIssue.updated_at)).toISOString(),
         overwrite: 'always',
     });
     if (_.isEqual(reactionAfter, reaction)) {

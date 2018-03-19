@@ -13,6 +13,7 @@ module.exports = _.create(Data, {
         mtime: String,
         details: Object,
         external: Array(Object),
+        exchange: Array(Object),
         itime: String,
         etime: String,
     },
@@ -44,6 +45,7 @@ module.exports = _.create(Data, {
                 mtime timestamp NOT NULL DEFAULT NOW(),
                 details jsonb NOT NULL DEFAULT '{}',
                 external jsonb[] NOT NULL DEFAULT '{}',
+                exchange jsonb[] NOT NULL DEFAULT '{}',
                 itime timestamp,
                 etime timestamp,
                 PRIMARY KEY (id)
@@ -104,18 +106,7 @@ module.exports = _.create(Data, {
             _.each(objects, (object, index) => {
                 var row = rows[index];
                 if (row.external.length > 0) {
-                    object.external = _.map(row.external, (link) => {
-                        return _.mapValues(link, (value, name) => {
-                            if (typeof(value) === 'object') {
-                                return _.pickBy(value, (value, name) => {
-                                    // don't send property with _ prefix
-                                    return (name.charAt(0) !== '_');
-                                });
-                            } else {
-                                return value;
-                            }
-                        });
-                    });
+                    object.external = row.external;
                 }
             });
             return objects;
