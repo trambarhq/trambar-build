@@ -199,6 +199,8 @@ services:
     #  - CACHE_FOLDER=/var/cache/gitlab
     extra_hosts:
       - gitlab.test:172.18.0.1
-    command: [ nodemon, gitlab-adapter.js ]
+    command: [ nodemon, --inspect, --debug-brk, gitlab-adapter.js ]
+    ports:
+      - 9229:9229
     depends_on:
       - postgres
