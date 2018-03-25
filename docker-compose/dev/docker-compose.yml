@@ -5,6 +5,7 @@ services:
     image: trambar-nginx-dev
     ports:
       - 80:80
+      - 443:443
     volumes:
       - ../../docker/nginx/conf.d:/etc/nginx/conf.d
       - ../../../trambar/admin/www:/var/www/trambar/admin
