@@ -16,6 +16,7 @@ module.exports = React.createClass({
     displayName: 'LinkManager',
     mixins: [ UpdateCheck ],
     propTypes: {
+        hasAccess: PropTypes.bool,
         database: PropTypes.instanceOf(Database),
         route: PropTypes.instanceOf(Route),
     },
@@ -79,14 +80,17 @@ module.exports = React.createClass({
      * @param  {Object} prevState
      */
     componentDidUpdate: function(prevProps, prevState) {
-        if (prevProps.route !== this.props.route) {
-            var prevAddress = _.get(prevProps.route, 'parameters.address');
-            var prevSchema = _.get(prevProps.route, 'parameters.schema');
-            var currAddress = _.get(this.props.route, 'parameters.address');
-            var currSchema = _.get(this.props.route, 'parameters.schema');
-            if (prevAddress !== currAddress || prevSchema !== currSchema) {
-                if (currAddress && currSchema) {
-                    this.saveLocation(currAddress, currSchema);
+        if (this.props.hasAccess) {
+            if (prevProps.route !== this.props.route || !prevProps.hasAccess) {
+                var prevAddress = _.get(prevProps.route, 'parameters.address');
+                var prevSchema = _.get(prevProps.route, 'parameters.schema');
+                var currAddress = _.get(this.props.route, 'parameters.address');
+                var currSchema = _.get(this.props.route, 'parameters.schema');
+                if (prevAddress !== currAddress || prevSchema !== currSchema || !prevProps.hasAccess) {
+                    if (currAddress && currSchema) {
+                        console.log('Saving location:', currAddress, currSchema)
+                        this.saveLocation(currAddress, currSchema);
+                    }
                 }
             }
         }
