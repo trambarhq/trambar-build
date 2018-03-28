@@ -12,7 +12,7 @@ services:
       - ../../../trambar/client/www:/var/www/trambar/client
       - .:/etc/nginx/extra
       - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
-      - ${TRAMBAR_SSL_FOLDER}:${TRAMBAR_SSL_FOLDER}
+      - ./snakeoil:/etc/ssl/snakeoil
     depends_on:
       - data_server
       - event_notifier
@@ -200,8 +200,6 @@ services:
     #  - CACHE_FOLDER=/var/cache/gitlab
     extra_hosts:
       - gitlab.test:172.18.0.1
-    command: [ nodemon, --inspect, --debug-brk, gitlab-adapter.js ]
-    ports:
-      - 9229:9229
+    command: [ nodemon, gitlab-adapter.js ]
     depends_on:
       - postgres
