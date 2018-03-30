@@ -163,7 +163,7 @@ module.exports = _.create(LiveData, {
             if (!row.finalized) {
                 if (credentials.user.id === row.target_user_id) {
                     // add new stories from list of candidates
-                    this.finalize(db, schema, row, options.backgroundRetrieval);
+                    this.finalize(db, schema, row);
                 }
             }
         });
@@ -221,10 +221,9 @@ module.exports = _.create(LiveData, {
      * @param  {Database} db
      * @param  {String} schema
      * @param  {Object} row
-     * @param  {Boolean} backgroundRetrieval
      */
-    finalize: function(db, schema, row, backgroundRetrieval) {
-        if (chooseStories(row, backgroundRetrieval)) {
+    finalize: function(db, schema, row) {
+        if (chooseStories(row)) {
             // save the results
             setTimeout(() => {
                 Database.open().then((db) => {
@@ -236,29 +235,27 @@ module.exports = _.create(LiveData, {
                 });
             }, 50);
         }
-        if (!backgroundRetrieval) {
-            setTimeout(() => {
-                Database.open().then((db) => {
-                    // finalize other listings now for consistency sake
-                    var criteria = {
-                        type: row.type,
-                        target_user_id: row.target_user_id,
-                        finalized: false,
-                    };
-                    return this.find(db, schema, criteria, '*').each((otherRow) => {
-                        if (otherRow.id !== row.id) {
-                            if (chooseStories(otherRow)) {
-                                return this.updateOne(db, schema, {
-                                    id: otherRow.id,
-                                    details: otherRow.details,
-                                    finalized: true,
-                                });
-                            }
+        setTimeout(() => {
+            Database.open().then((db) => {
+                // finalize other listings now for consistency sake
+                var criteria = {
+                    type: row.type,
+                    target_user_id: row.target_user_id,
+                    finalized: false,
+                };
+                return this.find(db, schema, criteria, '*').each((otherRow) => {
+                    if (otherRow.id !== row.id) {
+                        if (chooseStories(otherRow)) {
+                            return this.updateOne(db, schema, {
+                                id: otherRow.id,
+                                details: otherRow.details,
+                                finalized: true,
+                            });
                         }
-                    });
+                    }
                 });
-            }, 50);
-        }
+            });
+        }, 50);
     },
 });
 
@@ -267,21 +264,15 @@ module.exports = _.create(LiveData, {
  * object passed directly
  *
  * @param  {Story} row
- * @param  {Boolean} backgroundRetrieval
  *
  * @return {Boolean}
  */
-function chooseStories(row, backgroundRetrieval) {
+function chooseStories(row) {
     var now = new Date;
     var limit = _.get(row.filters, 'limit', 100);
     var retention = _.get(row.filters, 'retention', 24 * HOUR);
     var newStories = _.get(row.details, 'candidates', []);
     var oldStories = _.get(row.details, 'stories', []);
-
-    // remove stories that are still candidates (they were added during data prefetch)
-    oldStories = _.filter(oldStories, (story) => {
-        return !_.some(newStories, { id: story.id });
-    });
 
     // we want to show as many new stories as possible
     var newStoryCount = newStories.length;
@@ -330,7 +321,7 @@ function chooseStories(row, backgroundRetrieval) {
         if (newStoryCount !== newStories.length) {
             // apply retrieval time rating adjustments
             var context = ByRetrievalTime.createContext(newStories, row);
-            _.each(newStories, (story) => {
+            _.eachRight(newStories, (story) => {
                 story.rating += ByRetrievalTime.calculateRating(context, story);
             });
 
@@ -350,10 +341,7 @@ function chooseStories(row, backgroundRetrieval) {
             };
         });
         row.details.stories = _.concat(oldStories, newStories);
-        if (!backgroundRetrieval) {
-            // clear candidate list, unless the object is being prefetched
-            row.details.candidates = [];
-        }
+        row.details.candidates = [];
         // the object is going to be sent prior to being saved
         // bump up the generation number manually
         row.gn += 1;

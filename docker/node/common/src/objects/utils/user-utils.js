@@ -5,8 +5,12 @@ var ReactionUtils = require('objects/utils/reaction-utils');
 var NotificationTypes = require('objects/types/notification-types');
 
 module.exports = {
+    isMember,
+    isPendingMember,
     isAuthor,
     isRespondent,
+    canJoinProject,
+    canViewProject,
     canModerate,
     canEditStory,
     canHideStory,
@@ -23,6 +27,83 @@ module.exports = {
     mergeRemoteChanges: StoryUtils.mergeRemoteChanges,
 };
 
+/**
+ * Return true if user is a member of the project
+ *
+ * @param  {User} user
+ * @param  {Project} project
+ *
+ * @return {Boolean}
+ */
+function isMember(user, project) {
+    if (!user || !project) {
+        return false;
+    }
+    return _.includes(project.user_ids, user.id);
+}
+
+/**
+ * Return true if user has requested project membership
+ *
+ * @param  {User} user
+ * @param  {Project} project
+ *
+ * @return {Boolean}
+ */
+function isPendingMember(user, project) {
+    if (!user || !project) {
+        return false;
+    }
+    return _.includes(user.requested_project_ids, project.id);
+}
+
+/**
+ * Return true if user has read access to project
+ *
+ * @param  {User} user
+ * @param  {Project} project
+ *
+ * @return {Boolean}
+ */
+function canViewProject(user, project) {
+    if (isMember(user, project)) {
+        return true;
+    } else {
+        if (!user || !project) {
+            return false;
+        }
+        if (user.type === 'admin') {
+            return true;
+        } else {
+            return _.get(project, 'settings.access_control.grant_view_access', false);
+        }
+    }
+    return false;
+}
+
+/**
+ * Return true if user can join a project
+ *
+ * @param  {User} user
+ * @param  {Project} project
+ *
+ * @return {Boolean}
+ */
+function canJoinProject(user, project) {
+    if (!user || !project) {
+        return false;
+    }
+    return _.get(project, 'settings.membership.allow_user_request', false);
+}
+
+/**
+ * Return true if user is the author of a story
+ *
+ * @param  {User} user
+ * @param  {Story} story
+ *
+ * @return {Boolean}
+ */
 function isAuthor(user, story) {
     if (!user || !story) {
         return false;
@@ -33,6 +114,13 @@ function isAuthor(user, story) {
     return false;
 }
 
+/**
+ * Return true if user can moderate a project
+ *
+ * @param  {User} user
+ *
+ * @return {Boolean}
+ */
 function canModerate(user) {
     if (!user) {
         return false;
@@ -211,9 +299,6 @@ function canCreateBookmark(user, story, access) {
     if (!user) {
         return false;
     }
-    if (access !== 'read-write') {
-        return false;
-    }
     return true;
 }
 
@@ -228,6 +313,9 @@ function canCreateBookmark(user, story, access) {
  */
 function canSendBookmarks(user, story, access) {
     if (user.type === 'guest') {
+        return false;
+    }
+    if (access !== 'read-write') {
         return false;
     }
     return canCreateBookmark(user, story, access);

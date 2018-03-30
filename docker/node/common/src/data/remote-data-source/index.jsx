@@ -1028,7 +1028,7 @@ module.exports = React.createClass({
      * Perform a search on the server sude
      *
      * @param  {Search} search
-     * @param  {Boolean|undefined} background
+     * @param  {Boolean} background
      *
      * @return {Promise<Boolean>}
      */
@@ -1038,7 +1038,6 @@ module.exports = React.createClass({
         }
         var wasUpdating = search.updating;
         search.updating = true;
-        search.background = background || false;
         if (!this.searching) {
             if (!background) {
                 this.searching = true;
@@ -1126,7 +1125,6 @@ module.exports = React.createClass({
             return !!newResults;
         }).finally(() => {
             search.updating = false;
-            search.background = false;
 
             setTimeout(() => {
                 if (this.searching) {
