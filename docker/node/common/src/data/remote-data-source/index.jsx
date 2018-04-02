@@ -1345,14 +1345,15 @@ module.exports = React.createClass({
         return HTTPRequest.fetch('POST', url, req, options).then((result) => {
             return result;
         }).catch((err) => {
-            this.clearRecentSearches(address);
-            this.clearCachedObjects(address);
-            if (err.statusCode === 401) {
-                destroySession(session);
-                this.triggerExpirationEvent(session);
-                this.triggerChangeEvent();
-            } else if (err.statusCode == 403) {
-                this.triggerViolationEvent(address, schema);
+            if (err.statusCode === 401 || err.statusCode == 403) {
+                this.clearRecentSearches(address);
+                this.clearCachedObjects(address);
+                if (err.statusCode === 401) {
+                    destroySession(session);
+                    this.triggerExpirationEvent(session);
+                } else if (err.statusCode == 403) {
+                    this.triggerViolationEvent(address, schema);
+                }
                 this.triggerChangeEvent();
             }
             throw err;
@@ -1457,13 +1458,14 @@ module.exports = React.createClass({
      */
     clearCachedObjects: function(address) {
         var cache = this.props.cache;
-        if (!cache) {
+        if (!cache || this.cleaningCache) {
             return Promise.resolve(0);
         }
         this.cleaningCache = true;
-        return cache.clean({ address }).then(() => {
+        return cache.clean({ address }).then((count) => {
             this.cleaningCache = false;
-            console.log('Cache entries removed');
+            console.log(`Cache entries removed: ${count}`);
+            return count;
         });
     },
 
