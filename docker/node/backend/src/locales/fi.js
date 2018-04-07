@@ -135,6 +135,9 @@ module.exports = function(localeCode) {
         'notification-$name-added-you-as-coauthor': (name) => {
             return `${name} kutsui sinut muokkaamaan viestiä yhdessä`;
         },
+        'notification-$name-added-your-post-to-issue-tracker': (name) => {
+            return `${name} lisäsi viestisi raportointityökaluun`;
+        },
         'notification-$name-commented-on-your-$story': (name, story) => {
             switch (story) {
                 case 'survey': story = 'kyselysi'; break;
@@ -146,6 +149,9 @@ module.exports = function(localeCode) {
         },
         'notification-$name-completed-task': (name) => {
             return `${name} täytti tehtävänsä luettelossasi`;
+        },
+        'notification-$name-is-assigned-to-your-issue': (name) => {
+            return `${name} oli määrätty asiallenne`;
         },
         'notification-$name-likes-your-$story': (name, story) => {
             switch (story) {
@@ -165,11 +171,31 @@ module.exports = function(localeCode) {
                 case 'survey': story = 'kyselyssä'; break;
                 case 'task-list': story = 'tehtäväluettelossa'; break;
                 case 'post': story = 'viestissä'; break;
-                case 'issue': story = 'kysymyksessä'; break;
-                case 'merge-request': story = 'in a merge request'; break;
+                case 'issue': story = 'asiassä'; break;
+                case 'merge-request': story = 'merge-requestissa'; break;
                 default: story = 'tarinassa';
             }
             return `${name} mainitsi sinut ${story}`;
+        },
+        'notification-$name-merged-code-to-$branch': (name, branch) => {
+            return `${name} yhdisti koodin branchien “${branch}”`;
+        },
+        'notification-$name-opened-an-issue': (name) => {
+            return `${name} avasi asian`;
+        },
+        'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+            switch (story) {
+                case 'push': story = 'commitiasi'; break;
+                case 'issue': story = 'asiaasi'; break;
+                case 'merge-request': story = 'merge-requestiasi'; break;
+            }
+            return `${name} kommentoi ${story}`;
+        },
+        'notification-$name-posted-a-survey': (name) => {
+            return `${name} lähetti kyselyn`;
+        },
+        'notification-$name-pushed-code-to-$branch': (name, branch) => {
+            return `${name} painoi muutoksia branchien “${branch}”`;
         },
         'notification-$name-requested-to-join': (name) => {
             return `${name} pyysi liittymään tähän projektiin`;
@@ -186,7 +212,7 @@ module.exports = function(localeCode) {
         'notification-$name-voted-in-your-survey': (name) => {
             return `${name} vastasi kyselyynne`;
         },
-        'notification-option-assignment': 'Kun olet määrittänyt ongelman',
+        'notification-option-assignment': 'Kun joku on määritetty asiasi',
         'notification-option-bookmark': 'Kun joku lähettää sinulle kirjanmerkin',
         'notification-option-coauthor': 'Kun joku kutsuu sinut muokkaamaan viestiä yhdessä',
         'notification-option-comment': 'Kun joku kommentoi tarinaasi',
@@ -518,7 +544,7 @@ module.exports = function(localeCode) {
         'telephone-dialog-close': 'Sulje',
 
         'time-$hours-ago': (hours) => {
-            return (minutes === 1) ? `Tunti sitten` : `${minutes} tuntia sitten`;
+            return (hours === 1) ? `Tunti sitten` : `${hours} tuntia sitten`;
         },
         'time-$hr-ago': (hr) => {
             return `${hr} t. sitten`;
@@ -565,8 +591,10 @@ module.exports = function(localeCode) {
             return `Lähetti ${videos}`;
         },
         'user-activity-$name-pushed-code': 'Siirretty koodi arkistolle',
+        'user-activity-$name-reported-issue': 'Ilmoitti asiasta',
         'user-activity-$name-started-survey': 'Aloitti kyselyn',
         'user-activity-$name-started-task-list': 'Aloitti tehtäväluettelon',
+        'user-activity-$name-was-assigned-issue': 'Oli määrätty asiaan',
         'user-activity-$name-wrote-post': 'Kirjoitti viestin',
         'user-activity-back': 'Palataa',
         'user-activity-more': 'Lisää',

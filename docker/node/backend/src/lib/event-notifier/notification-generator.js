@@ -75,6 +75,10 @@ var notificationGeneratingFunctions = [
  */
 function generateCoauthoringNotifications(db, event) {
     return Promise.try(() => {
+        // don't notify when we're just creating the editable copy
+        if (event.diff.published_version_id) {
+            return [];
+        }
         var newCoauthorIds = getNewCoauthorIds(event);
         if (_.isEmpty(newCoauthorIds)) {
             return [];
@@ -457,13 +461,12 @@ function getNewRequestedProjectIds(event) {
  * @return {Boolean}
  */
 function checkUserPreference(user, notification) {
-    var settingValue = _.get(user, `settings.notification.${notification.type}`);
+    var name = _.snakeCase(notification.type);
+    var settingValue = _.get(user, `settings.notification.${name}`);
     if (settingValue) {
-        if (process.env.NODE_ENV === 'production') {
-            // user never receives notification from himself in production
-            if (notification.user_id === notification.target_user_id) {
-                return false;
-            }
+        // user never receives notification from himself
+        if (notification.user_id === notification.target_user_id) {
+            return false;
         }
         if (settingValue === true) {
             return true;

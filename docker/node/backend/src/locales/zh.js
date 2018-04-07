@@ -178,6 +178,9 @@ var traditionalPhrases = {
     'notification-$name-added-you-as-coauthor': (name) => {
         return `${name}邀請你共同編輯一個貼文`;
     },
+    'notification-$name-added-your-post-to-issue-tracker': (name) => {
+        return `${name}把你的帖子放到問題跟踪器上`;
+    },
     'notification-$name-commented-on-your-$story': (name, story) => {
         switch (story) {
             case 'push': story = '推送'; break;
@@ -192,6 +195,9 @@ var traditionalPhrases = {
     },
     'notification-$name-completed-task': (name) => {
         return `${name}完成了在你的列表上一個任務`;
+    },
+    'notification-$name-is-assigned-to-your-issue': (name) => {
+        return `${name}被分配到你的問題`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -217,6 +223,26 @@ var traditionalPhrases = {
         }
         return `${name}在${story}提到你`;
     },
+    'notification-$name-merged-code-to-$branch': (name, branch) => {
+        return `${name}將代碼合併到《${branch}》分支`;
+    },
+    'notification-$name-opened-an-issue': (name) => {
+        return `${name}開了一個問題`;
+    },
+    'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+        switch (story) {
+            case 'push': story = '提交'; break;
+            case 'issue': story = '問題'; break;
+            case 'merge-request': story = '合併請求'; break;
+        }
+        return `${name}回應了你的${story}`;
+    },
+    'notification-$name-posted-a-survey': (name) => {
+        return `${name}發布了一個調查`;
+    },
+    'notification-$name-pushed-code-to-$branch': (name, branch) => {
+        return `${name}推了一些代碼修改入到《${branch}》分支`;
+    },
     'notification-$name-requested-to-join': (name) => {
         return `${name}要求加入這個項目`;
     },
@@ -232,7 +258,7 @@ var traditionalPhrases = {
     'notification-$name-voted-in-your-survey': (name) => {
         return `${name}回答了你的調查`;
     },
-    'notification-option-assignment': '當你被分配到一個問題',
+    'notification-option-assignment': '當有人被分配到你的問題',
     'notification-option-bookmark': '當你收到某人的書籤',
     'notification-option-coauthor': '當你收到共同編輯貼文的邀請',
     'notification-option-comment': '當有人回應你的貼文',
@@ -612,8 +638,10 @@ var traditionalPhrases = {
         return `新增了${num}張影片`;
     },
     'user-activity-$name-pushed-code': '將代碼推送到數據庫',
+    'user-activity-$name-reported-issue': '報告了一個問題',
     'user-activity-$name-started-survey': '發布了一個調查',
     'user-activity-$name-started-task-list': '發布了一個任務列表',
+    'user-activity-$name-was-assigned-issue': '被分配到一個問題',
     'user-activity-$name-wrote-post': '寫了一個貼文',
     'user-activity-back': '返回',
     'user-activity-more': '更多',
@@ -829,6 +857,9 @@ var simplifiedPhrases = {
     'notification-$name-added-you-as-coauthor': (name) => {
         return `${name}邀请你共同编辑一个贴文`;
     },
+    'notification-$name-added-your-post-to-issue-tracker': (name) => {
+        return `${name}把你的贴文放到问题跟踪器上`;
+    },
     'notification-$name-commented-on-your-$story': (name, story) => {
         switch (story) {
             case 'push': story = '推送'; break;
@@ -843,6 +874,9 @@ var simplifiedPhrases = {
     },
     'notification-$name-completed-task': (name) => {
         return `${name}完成了在你的列表上一个任务`;
+    },
+    'notification-$name-is-assigned-to-your-issue': (name) => {
+        return `${name}被分配到你的问题`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -868,6 +902,26 @@ var simplifiedPhrases = {
         }
         return `${name}在${story}提到你`;
     },
+    'notification-$name-merged-code-to-$branch': (name, branch) => {
+        return `${name}将代码合并到《${branch}》分支`;
+    },
+    'notification-$name-opened-an-issue': (name) => {
+        return `${name}开了一个问题`;
+    },
+    'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+        switch (story) {
+            case 'push': story = '提交'; break;
+            case 'issue': story = '问题'; break;
+            case 'merge-request': story = '合并请求'; break;
+        }
+        return `${name}回应了你的${story}`;
+    },
+    'notification-$name-posted-a-survey': (name) => {
+        return `${name}发布了一个调查`;
+    },
+    'notification-$name-pushed-code-to-$branch': (name, branch) => {
+        return `${name}推了一些代码修改入到《${branch}》分支`;
+    },
     'notification-$name-requested-to-join': (name) => {
         return `${name}要求加入这个项目`;
     },
@@ -883,7 +937,7 @@ var simplifiedPhrases = {
     'notification-$name-voted-in-your-survey': (name) => {
         return `${name}回答了你的调查`;
     },
-    'notification-option-assignment': '当你被分配到一个问题',
+    'notification-option-assignment': '当有人被分配到你的问题',
     'notification-option-bookmark': '当你收到某人的书签',
     'notification-option-coauthor': '当你收到共同编辑贴文的邀请',
     'notification-option-comment': '当有人回应你的贴文',
@@ -1263,8 +1317,10 @@ var simplifiedPhrases = {
         return `新增了${num}张影片`;
     },
     'user-activity-$name-pushed-code': '将代码推送到数据库',
+    'user-activity-$name-reported-issue': '报告了一个问题',
     'user-activity-$name-started-survey': '发布了一个调查',
     'user-activity-$name-started-task-list': '发布了一个任务列表',
+    'user-activity-$name-was-assigned-issue': '被分配到一个问题',
     'user-activity-$name-wrote-post': '写了一个贴文',
     'user-activity-back': '返回',
     'user-activity-more': '更多',
@@ -1381,6 +1437,9 @@ var cantonesePhrases = {
     'notification-$name-added-you-as-coauthor': (name) => {
         return `${name}邀請你一齊寫一個帖子`;
     },
+    'notification-$name-added-your-post-to-issue-tracker': (name) => {
+        return `${name}將呢個帖子放到問題跟踪器上`;
+    },
     'notification-$name-commented-on-your-$story': (name, story) => {
         switch (story) {
             case 'push': story = '推送'; break;
@@ -1395,6 +1454,9 @@ var cantonesePhrases = {
     },
     'notification-$name-completed-task': (name) => {
         return `${name}完成咗喺你個列表上嘅一個任務`;
+    },
+    'notification-$name-is-assigned-to-your-issue': (name) => {
+        return `${name}被分配到你嘅問題`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -1423,13 +1485,33 @@ var cantonesePhrases = {
         }
         return `${name}喺${story}提到你`;
     },
+    'notification-$name-merged-code-to-$branch': (name, branch) => {
+        return `${name}將代碼合併到《${branch}》分支`;
+    },
+    'notification-$name-opened-an-issue': (name) => {
+        return `${name}開咗一個問題`;
+    },
+    'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+        switch (story) {
+            case 'push': story = '提交'; break;
+            case 'issue': story = '問題'; break;
+            case 'merge-request': story = '合併請求'; break;
+        }
+        return `${name}回應咗你嘅${story}`;
+    },
+    'notification-$name-posted-a-survey': (name) => {
+        return `${name}發布咗一個調查`;
+    },
+    'notification-$name-pushed-code-to-$branch': (name, branch) => {
+        return `${name}推咗一啲代碼修改入到《${branch}》分支`;
+    },
     'notification-$name-requested-to-join': (name) => {
         return `${name}要求加入呢個項目`;
     },
     'notification-$name-voted-in-your-survey': (name) => {
         return `${name}回答咗你嘅調查`;
     },
-    'notification-option-assignment': '當你被分配到一個問題',
+    'notification-option-assignment': '當有人被分配到你嘅問題',
     'notification-option-bookmark': '當你收到人哋嘅書籤',
     'notification-option-coauthor': '當有人想同你一齊寫帖子',
     'notification-option-comment': '當有人回應你嘅帖子',
@@ -1474,7 +1556,7 @@ var cantonesePhrases = {
     'qr-scanner-qr-code-found': '搵找到ＱＲ碼',
 
     'reaction-$name-added-story-to-issue-tracker': (name) => {
-        return `${name}把呢個帖子放到問題跟踪器上`;
+        return `${name}將呢個帖子放到問題跟踪器上`;
     },
     'reaction-$name-cast-a-vote': (name) => {
         return `${name}投咗一票`;
@@ -1666,6 +1748,7 @@ var cantonesePhrases = {
         var num = cardinalT(count);
         return `新增咗${num}張影片`;
     },
+    'user-activity-$name-reported-issue': '報告咗一個問題',
     'user-activity-$name-started-survey': '發布咗一個調查',
     'user-activity-$name-started-task-list': '發布咗一個任務列表',
     'user-activity-$name-wrote-post': '寫咗一個帖子',

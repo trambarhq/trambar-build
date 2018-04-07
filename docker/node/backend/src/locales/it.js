@@ -135,6 +135,9 @@ module.exports = function(localeCode) {
         'notification-$name-added-you-as-coauthor': (name) => {
             return `${name} ti ha invitato a modificare insieme un post`;
         },
+        'notification-$name-added-your-post-to-issue-tracker': (name) => {
+            return `${name} ha aggiunto il tuo post  al bug tracker`;
+        },
         'notification-$name-commented-on-your-$story': (name, story) => {
             switch (story) {
                 case 'survey': story = "il tuo sondaggio"; break;
@@ -146,6 +149,9 @@ module.exports = function(localeCode) {
         },
         'notification-$name-completed-task': (name) => {
             return `${name} ha completato un'attività nel tuo elenco`;
+        },
+        'notification-$name-is-assigned-to-your-issue': (name) => {
+            return `${name} è stato assegnato al tuo problema`;
         },
         'notification-$name-likes-your-$story': (name, story) => {
             switch (story) {
@@ -171,6 +177,26 @@ module.exports = function(localeCode) {
             }
             return `${name} ti ha menzionato in ${story}`;
         },
+        'notification-$name-merged-code-to-$branch': (name, branch) => {
+            return `${name} ha incorporato modifiche nel branch «${branch}»`;
+        },
+        'notification-$name-opened-an-issue': (name) => {
+            return `${name} ha aperto un problema`;
+        },
+        'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+            switch (story) {
+                case 'push': story = 'la tua commit'; break;
+                case 'issue': story = 'la tua problema'; break;
+                case 'merge-request': story = 'la tua merge richiesta'; break;
+            }
+            return `${name} ha commentato ${story}`;
+        },
+        'notification-$name-posted-a-survey': (name) => {
+            return `${name} ha pubblicato un sondaggio`;
+        },
+        'notification-$name-pushed-code-to-$branch': (name, branch) => {
+            return `${name} ha inviato modifiche al branch «${branch}»`;
+        },
         'notification-$name-requested-to-join': (name) => {
             return `${name} ha chiesto di aderire a questo progetto`;
         },
@@ -186,7 +212,7 @@ module.exports = function(localeCode) {
         'notification-$name-voted-in-your-survey': (name) => {
             return `${name} ha risposto al tuo sondaggio`;
         },
-        'notification-option-assignment': "Quando sei assegnato a un problema",
+        'notification-option-assignment': "Quando qualcuno è assegnato al tuo problema",
         'notification-option-bookmark': "Quando qualcuno ti manda un segnalibro",
         'notification-option-coauthor': "Quando qualcuno ti invita a modificare in comune un post",
         'notification-option-comment': "Quando qualcuno commenta la tua storia",
@@ -587,9 +613,11 @@ module.exports = function(localeCode) {
             var videos = (count === 1) ? `un videoclip` : `${count} videoclip`;
             return `Ha pubblicato ${videos}`;
         },
-        'user-activity-$name-pushed-code': "ha inviato il codice nel repository",
+        'user-activity-$name-pushed-code': "Ha inviato il codice nel repository",
+        'user-activity-$name-reported-issue': 'Ha segnalato un problema',
         'user-activity-$name-started-survey': "Ha iniziato un sondaggio",
         'user-activity-$name-started-task-list': "Ha iniziato un elenco di attività",
+        'user-activity-$name-was-assigned-issue': 'È stato assegnato a un problema',
         'user-activity-$name-wrote-post': "Ha scritto un post",
         'user-activity-back': 'Indietro',
         'user-activity-more': "Altre",

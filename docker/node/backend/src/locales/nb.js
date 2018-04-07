@@ -135,6 +135,9 @@ module.exports = function(localeCode) {
         'notification-$name-added-you-as-coauthor': (name) => {
             return `${name} inviterte deg til å redigere et innlegg`;
         },
+        'notification-$name-added-your-post-to-issue-tracker': (name) => {
+            return `${name} la til innlegget ditt til feilrapporteringssystemet`;
+        },
         'notification-$name-commented-on-your-$story': (name, story) => {
             switch (story) {
                 case 'survey': story = 'undersøkelsen din'; break;
@@ -146,6 +149,9 @@ module.exports = function(localeCode) {
         },
         'notification-$name-completed-task': (name) => {
             return `${name} fullførte en oppgave på listen din`;
+        },
+        'notification-$name-is-assigned-to-your-issue': (name) => {
+            return `${name} ble tildelt problemet ditt`;
         },
         'notification-$name-likes-your-$story': (name, story) => {
             switch (story) {
@@ -171,6 +177,26 @@ module.exports = function(localeCode) {
             }
             return `${name} nevnte deg ${story}`;
         },
+        'notification-$name-merged-code-to-$branch': (name, branch) => {
+            return `${name} merget kode inn i branchen “${branch}”`;
+        },
+        'notification-$name-opened-an-issue': (name) => {
+            return `${name} åpnet et problem`;
+        },
+        'notification-$name-posted-a-note-about-your-$story': (name, story) => {
+            switch (story) {
+                case 'push': story = 'commiten din'; break;
+                case 'issue': story = 'problemet ditt'; break;
+                case 'merge-request': story = 'merge-requesten din'; break;
+            }
+            return `${name} kommenterte ${story}`;
+        },
+        'notification-$name-posted-a-survey': (name) => {
+            return `${name} skrev en undersøkelse`;
+        },
+        'notification-$name-pushed-code-to-$branch': (name, branch) => {
+            return `${name} pushet forandringer til branchen “${branch}”`;
+        },
         'notification-$name-requested-to-join': (name) => {
             return `${name} ba om å bli med i dette prosjektet`;
         },
@@ -186,7 +212,7 @@ module.exports = function(localeCode) {
         'notification-$name-voted-in-your-survey': (name) => {
             return `${name} svarte på undersøkelsen din`;
         },
-        'notification-option-assignment': 'Når du er tildelt et problem',
+        'notification-option-assignment': 'Når noen er tildelt problemet ditt',
         'notification-option-bookmark': 'Når noen sender deg et bokmerke',
         'notification-option-coauthor': 'Når noen inviterer deg til å redigere et innlegg',
         'notification-option-comment': 'Når noen kommenterer innlegget ditt',
@@ -513,7 +539,7 @@ module.exports = function(localeCode) {
         'telephone-dialog-close': 'Lukk',
 
         'time-$hours-ago': (hours) => {
-            return (minutes === 1) ? `En time siden` : `${minutes} timer siden`;
+            return (hours === 1) ? `En time siden` : `${hours} timer siden`;
         },
         'time-$hr-ago': (hr) => {
             return `${hr} t. sitten`;
@@ -561,8 +587,10 @@ module.exports = function(localeCode) {
             return `Skrevet ${videos}`;
         },
         'user-activity-$name-pushed-code': 'La kod til repoen',
+        'user-activity-$name-reported-issue': 'Rapporterte et problem',
         'user-activity-$name-started-survey': 'Startet en undersøkelse',
         'user-activity-$name-started-task-list': 'Startet en oppgaveliste',
+        'user-activity-$name-was-assigned-issue': 'Ble tildelt et problem',
         'user-activity-$name-wrote-post': 'Skrev et innlegg',
         'user-activity-back': 'Tilbake',
         'user-activity-more': 'Flere',
