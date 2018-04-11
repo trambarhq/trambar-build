@@ -128,10 +128,10 @@ function importAssignments(db, server, project, repo, story, assignees, glIssue)
             issue: { id: glIssue.id }
         }),
     };
-    return Reaction.find(db, schema, criteria, 'user_id').then((reactions) => {
+    return Reaction.find(db, schema, criteria, 'user_id').then((existingReactions) => {
         var reactions = [];
         _.each(assignees, (assignee) => {
-            if (!_.some(reactions, { user_id: assignee.id })) {
+            if (!_.some(existingReactions, { user_id: assignee.id })) {
                 var reactionNew = copyAssignmentProperties(null, server, story, assignee, glIssue);
                 reactions.push(reactionNew);
             }
@@ -180,8 +180,19 @@ function copyIssueProperties(story, server, repo, author, assignees, glIssue) {
     var tags = _.union(descriptionTags, labelTags);
     var assigneeIds = _.map(assignees, 'id');
     var assigneeRoleIds = _.flatten(_.map(assignees, 'role_ids'));
-    var userIds = _.union((story) ? story.user_ids : [], [ author.id ], assigneeIds);
-    var roleIds = _.union((story) ? story.role_ids : [], author.role_ids, assigneeRoleIds);
+
+    // author is either the person who wrote the issue or the one who wrote
+    // the post that was exported to issue-tracker
+    var authorIds = _.get(story, 'details.authors', [ author.id ]);
+    var exporterIds = _.get(story, 'details.exporters');
+    var assigneeIds = _.get(story, 'details.assignees');
+    var roleIds = _.get(story, 'role_ids', author.role_ids);
+
+    // add ids of new assignees
+    _.each(assignees, (assignee) => {
+        assigneeIds = _.union(assigneeIds, [ assignee.id ]);
+        roleIds = _.union(roleIds, assignee.role_ids);
+    });
 
     var storyAfter = _.cloneDeep(story) || {};
     ExternalDataUtils.inheritLink(storyAfter, server, repo, {
@@ -200,11 +211,15 @@ function copyIssueProperties(story, server, repo, author, assignees, glIssue) {
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
-        value: userIds,
+        value: _.union(authorIds, exporterIds, assigneeIds),
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'role_ids', {
         value: roleIds,
+        overwrite: 'always',
+    });
+    ExternalDataUtils.importProperty(storyAfter, server, 'details.assignees', {
+        value: assigneeIds,
         overwrite: 'always',
     });
     // title is imported only if issue isn't confidential
@@ -290,7 +305,9 @@ function copyAssignmentProperties(reaction, server, story, assignee, glIssue) {
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(reactionAfter, server, 'ptime', {
-        value: Moment(new Date(glIssue.updated_at)).toISOString(),
+        // TODO: this isn't right when importing old issues;
+        // need to retrieve past assignment (along with the time) from GitLab
+        value: Moment(new Date(reaction ? glIssue.updated_at : glIssue.created_at)).toISOString(),
         overwrite: 'always',
     });
     if (_.isEqual(reactionAfter, reaction)) {

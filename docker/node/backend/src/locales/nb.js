@@ -93,7 +93,7 @@ module.exports = function(localeCode) {
         'image-editor-upload-in-progress': 'Opplasting pågår...',
 
         'issue-cancel': 'Avbryt',
-        'issue-clear': 'Slett',
+        'issue-delete': 'Slett',
         'issue-ok': 'OK',
         'issue-repo': 'Prosjekt',
         'issue-title': 'Tittel',
@@ -272,11 +272,13 @@ module.exports = function(localeCode) {
         'project-management-add': 'Legg til',
         'project-management-cancel': 'Avbryt',
         'project-management-description': 'prosjektbeskrivelse',
+        'project-management-join-project': 'bli med i prosjektet',
         'project-management-manage': 'Administrer liste',
         'project-management-mobile-set-up': 'mobil oppsett',
         'project-management-remove': 'Fjerne',
         'project-management-sign-out': 'Logg ut',
         'project-management-sign-out-are-you-sure': 'Er du sikker på at du vil logge deg ut fra denne serveren?',
+        'project-management-withdraw-request': 'opphev medlemskapsforespørselen',
 
         'qr-scanner-cancel': 'Avbryt',
         'qr-scanner-invalid-qr-code': 'Ugyldig QR-kode',

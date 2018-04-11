@@ -50,6 +50,8 @@ function start() {
             app.use(BodyParser.json());
             app.use(CORS());
             app.set('json spaces', 2);
+            app.route('/srv/data/signature/:schema/')
+                .get(handleSignature);
             app.route('/srv/data/discovery/:schema/:table/')
                 .post(handleDiscovery)
                 .get(handleDiscovery);
@@ -111,6 +113,35 @@ function sendError(res, err) {
         }
     }
     res.status(statusCode).json({ message });
+}
+
+/**
+ * Handle schema signature retrieval
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleSignature(req, res) {
+    var schema = req.params.schema;
+    return Database.open().then((db) => {
+        if (!/^[\w\-]+$/.test(schema)) {
+            throw new HTTPError(404);
+        }
+        var table = `"${schema}"."meta"`;
+        var sql = `SELECT signature FROM ${table}`;
+        return db.query(sql).then((rows) => {
+            if (_.isEmpty(rows)) {
+                throw new HTTPError(404);
+            }
+            return rows[0].signature;
+        }).catch((err) => {
+            throw new HTTPError(404);
+        });
+    }).then((signature) => {
+        sendResponse(res, { signature });
+    }).catch((err) => {
+        sendError(res, err);
+    });
 }
 
 /**
@@ -178,10 +209,6 @@ function handleDiscovery(req, res) {
                         gns: _.map(rows, 'gn'),
                     }
                 });
-            }).then((results) => {
-                // see if data needed to be synchronize with an external source
-                accessor.sync(db, schema, criteria);
-                return results;
             });
         }).finally(() => {
             return db.close();

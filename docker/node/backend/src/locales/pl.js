@@ -129,7 +129,7 @@ module.exports = function(localeCode) {
         'image-editor-upload-in-progress': 'Przesyłanie w toku...',
 
         'issue-cancel': 'Anuluj',
-        'issue-clear': 'Wyczyść',
+        'issue-delete': 'Usuń',
         'issue-ok': 'OK',
         'issue-repo': 'Repozytorium',
         'issue-title': 'Tytul',
@@ -333,11 +333,13 @@ module.exports = function(localeCode) {
         'project-management-add': 'Dodaj',
         'project-management-cancel': 'Anuluj',
         'project-management-description': 'opis projektu',
+        'project-management-join-project': 'dołącz do projektu',
         'project-management-manage': 'Zarządzaj listą',
         'project-management-mobile-set-up': 'konfiguracja mobilna',
         'project-management-remove': 'Usuń',
         'project-management-sign-out': 'wyloguj się',
         'project-management-sign-out-are-you-sure': 'Czy na pewno chcesz się wylogować z tego serwera?',
+        'project-management-withdraw-request': 'anulowaj prośbę o członkostwo',
 
         'qr-scanner-cancel': 'Anuluj',
         'qr-scanner-invalid-qr-code': 'Nieprawidłowy kod QR',

@@ -29,6 +29,7 @@ module.exports = _.create(ExternalData, {
         deleted: Boolean,
         type: String,
         username: String,
+        email: String,
         role_ids: Array(Number),
         requested_project_ids: Array(Number),
         disabled: Boolean,
@@ -329,17 +330,6 @@ module.exports = _.create(ExternalData, {
             // users cannot delete themselves
             throw new HTTPError(400);
         }
-    },
-
-    /**
-     * Synchronize table with data sources
-     *
-     * @param  {Database} db
-     * @param  {String} schema
-     * @param  {Object} criteria
-     */
-    sync: function(db, schema, criteria) {
-        this.sendSyncNotification(db, schema, criteria);
     },
 
     /**

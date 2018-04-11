@@ -68,6 +68,9 @@ module.exports = React.createClass({
     getInitialState: function() {
         this.searching = false;
         this.idMappings = {};
+        this.cacheValidation = {};
+        this.cacheClearing = {};
+        this.changeMonitors = [];
         var lists = {
             recentSearchResults: [],
             recentStorageResults: [],
@@ -233,8 +236,8 @@ module.exports = React.createClass({
                 console.error(err);
             }).then(() => {
                 destroySession(session);
-                this.clearRecentSearches(address);
-                this.clearCachedObjects(address);
+                this.clearRecentOperations(address);
+                this.clearCachedSchemas(address);
                 this.triggerExpirationEvent(session);
                 return null;
             });
@@ -609,6 +612,60 @@ module.exports = React.createClass({
     },
 
     /**
+     * Wait for an object to change
+     *
+     * @param  {Object} location
+     * @param  {Object} object
+     * @param  {Number} timeout
+     *
+     * @return {Promise<Boolean>}
+     */
+    await: function(location, object, timeout) {
+        var monitor = {
+            location: _.pick(location, 'address', 'schema', 'table'),
+            id: object.id,
+            promise: null,
+            resolve: null,
+        };
+        var promise = new Promise((resolve) => {
+            monitor.resolve = resolve;
+        });
+        monitor.promise = promise.timeout(timeout).then(() => {
+            return true;
+        }).catch((err) => {
+            return false;
+        }).finally(() => {
+            _.pull(this.changeMonitors, monitor);
+        });
+        this.changeMonitors.push(monitor);
+        return monitor.promise;
+    },
+
+    /**
+     * Override cache mechansim and ensure that the remote searches are
+     * perform on given object
+     *
+     * @param  {Object} location
+     * @param  {Object} object
+     *
+     * @return {Promise<Boolean>}
+     */
+    refresh: function(location, object) {
+        var relevantSearches = this.getRelevantRecentSearches(location);
+        _.each(relevantSearches, (search) => {
+            var dirty = false;
+            var index = _.sortedIndexBy(search.results, object, 'id');
+            var target = search.results[index];
+            if (target && target.id === object.id) {
+                dirty = true;
+            }
+            if (dirty) {
+                search.dirty = true;
+            }
+        });
+    },
+
+    /**
      * Remove recent searches on schema
      *
      * @param  {String|undefined} address
@@ -657,6 +714,7 @@ module.exports = React.createClass({
                         schema: parts[0],
                         table: parts[1]
                     };
+                    this.triggerChangeMonitors(location, changedObjects.ids);
                     var ids = _.filter(changedObjects.ids, (id, index) => {
                         var gn = changedObjects.gns[index];
                         if (this.isBeingSaved(location, id)) {
@@ -729,6 +787,22 @@ module.exports = React.createClass({
                 }
             }
             return changed;
+        });
+    },
+
+    /**
+     * Trigger promise created by await()
+     *
+     * @param  {Object} location
+     * @param  {Array<Number>} ids
+     */
+    triggerChangeMonitors: function(location, ids) {
+        _.each(this.changeMonitors, (monitor) => {
+            if (_.isEqual(location, monitor.location)) {
+                if (_.includes(ids, monitor.id)) {
+                    monitor.resolve();
+                }
+            }
         });
     },
 
@@ -1348,8 +1422,8 @@ module.exports = React.createClass({
             return result;
         }).catch((err) => {
             if (err.statusCode === 401 || err.statusCode == 403) {
-                this.clearRecentSearches(address);
-                this.clearCachedObjects(address);
+                this.clearRecentOperations(address);
+                this.clearCachedSchemas(address);
                 if (err.statusCode === 401) {
                     destroySession(session);
                     this.triggerExpirationEvent(session);
@@ -1397,18 +1471,158 @@ module.exports = React.createClass({
         if (!cache) {
             return Promise.resolve(false);
         }
-        if (search.remote || this.cleaningCache) {
+        if (search.remote) {
             // don't scan cache if query is designed as remote
-            // and if the cache is currently being cleaned
             return Promise.resolve(true);
         }
-        return cache.find(search.getQuery()).then((objects) => {
-            search.results = objects;
-            return true;
-        }).catch((err) => {
-            console.error(err);
-            return false;
+        var query = search.getQuery();
+        return this.validateCache(query.address, query.schema).then(() => {
+            return cache.find(query).then((objects) => {
+                search.results = objects;
+                return true;
+            }).catch((err) => {
+                console.error(err);
+                return false;
+            });
         });
+    },
+
+    /**
+     * Compare signature stored previous with current signature; if they do
+     * not match, clean the cache
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     *
+     * @return {Promise}
+     */
+    validateCache: function(address, schema) {
+        if (schema === 'local') {
+            return Promise.resolve();
+        }
+        if (!this.props.hasConnection) {
+            return Promise.resolve();
+        }
+        var cache = this.props.cache;
+        var path = [ address, schema ];
+        var promise = _.get(this.cacheValidation, path);
+        if (!promise) {
+            promise = this.getRemoteSignature(address, schema).then((remoteSignature) => {
+                console.log('Validating cache of ' + schema);
+                return this.getCacheSignature(address, schema).then((cacheSignature) => {
+                    console.log('Remote signature = ' + remoteSignature);
+                    console.log('Cache signature = ' + cacheSignature);
+                    if (cacheSignature) {
+                        if (cacheSignature !== remoteSignature) {
+                            console.log('Clearing cache ' + schema);
+                            return this.clearCachedObjects(address, schema).then(() => {
+                                return this.setCacheSignature(address, schema, remoteSignature);
+                            });
+                        }
+                    } else {
+                        // wait for any cache clearing operation to complete
+                        return this.waitForCacheClearing(address, schema).then(() => {
+                            return this.setCacheSignature(address, schema, remoteSignature);
+                        });
+                    }
+                });
+            }).catch((err) => {
+                console.error(err);
+                _.unset(this.cacheValidation, path);
+            });
+            _.set(this.cacheValidation, path, promise);
+        }
+        return promise;
+    },
+
+    /**
+     * Clear cached schema at given address
+     *
+     * @param  {String} address
+     *
+     * @return {Promise}
+     */
+    clearCachedSchemas: function(address) {
+        // remove all validation results for address
+        _.unset(this.cacheValidation, [ address ]);
+        // remove the signatures
+        var cache = this.props.cache;
+        var location = {
+            schema: 'local',
+            table: 'remote_schema',
+        };
+        var prefix = `${address}/`;
+        return cache.find(location).filter((row) => {
+            return _.startsWith(row.key, prefix);
+        }).then((rows) => {
+            return cache.remove(location, rows);
+        }).then(() => {
+            // clear the objects
+            return this.clearCachedObjects(address, '*');
+        });
+    },
+
+    /**
+     * Fetch signature of schema
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     *
+     * @return {Promise<String>}
+     */
+    getRemoteSignature: function(address, schema) {
+        var url = `${address}${this.props.basePath}/signature/${schema}`;
+        var options = {
+            responseType: 'json'
+        };
+        return HTTPRequest.fetch('GET', url, null, options).then((result) => {
+            return _.get(result, 'signature');
+        });
+    },
+
+    /**
+     * Load signature of cached schema
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     *
+     * @return {Promise<String>}
+     */
+    getCacheSignature: function(address, schema) {
+        var cache = this.props.cache;
+        var query = {
+            schema: 'local',
+            table: 'remote_schema',
+            criteria: {
+                key: `${address}/${schema}`
+            }
+        };
+        return cache.find(query).get(0).then((result) => {
+            console.log('getCacheSignature', result);
+            return _.get(result, 'signature');
+        });
+    },
+
+    /**
+     * Save signature of cached schema
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     * @param  {String} signature
+     *
+     * @return {Promise}
+     */
+    setCacheSignature: function(address, schema, signature) {
+        var cache = this.props.cache;
+        var location = {
+            schema: 'local',
+            table: 'remote_schema',
+        };
+        var entry = {
+            key: `${address}/${schema}`,
+            signature
+        };
+        return cache.save(location, [ entry ]);
     },
 
     /**
@@ -1455,20 +1669,53 @@ module.exports = React.createClass({
      * Deleted all cached objects originating from given server
      *
      * @param  {String} address
+     * @param  {String} schema
      *
      * @return {Promise<Number>}
      */
-    clearCachedObjects: function(address) {
+    clearCachedObjects: function(address, schema) {
         var cache = this.props.cache;
-        if (!cache || this.cleaningCache) {
+        if (!cache) {
+            return Promise.resolve(false);
+        }
+        // see if we're in the middle of clearing everything from address
+        var path = [ address, '*' ];
+        var promise = _.get(this.cacheClearing, path);
+        if (!promise) {
+            if (schema !== '*') {
+                path = [ address, schema ];
+                promise = _.get(this.cacheClearing, path);
+            }
+        }
+        if (!promise) {
+            promise = cache.clean({ address, schema }).then((count) => {
+                _.unset(this.cacheClearing, path);
+                console.log(`Cache entries removed: ${count}`);
+                return count;
+            });
+            _.set(this.cacheClearing, path, promise);
+        }
+        return promise;
+    },
+
+    /**
+     * If a schema is in the middle of being cleared, return the promise from
+     * that operation
+     *
+     * @param  {String} address
+     * @param  {String} schema
+     *
+     * @return {Promise<Number>}
+     */
+    waitForCacheClearing: function(address, schema) {
+        var promise = _.get(this.cacheClearing, [ address, '*' ]);
+        if (!promise) {
+            promise = _.get(this.cacheClearing, [ address, schema ]);
+        }
+        if (!promise) {
             return Promise.resolve(0);
         }
-        this.cleaningCache = true;
-        return cache.clean({ address }).then((count) => {
-            this.cleaningCache = false;
-            console.log(`Cache entries removed: ${count}`);
-            return count;
-        });
+        return promise;
     },
 
     /**
@@ -1559,15 +1806,22 @@ module.exports = React.createClass({
      *
      * @param  {String} address
      */
-    clearRecentSearches: function(address) {
-        this.updateList('recentSearchResults', (before) => {
-            var after = _.filter(before, (search) => {
-                if (search.address === address) {
-                    return false;
-                }
-                return true;
+    clearRecentOperations: function(address) {
+        var listNames = [
+            'recentSearchResults',
+            'recentStorageResults',
+            'recentRemovalResults'
+        ];
+        _.each(listNames, (listName) => {
+            this.updateList(listName, (before) => {
+                var after = _.filter(before, (op) => {
+                    if (op.address === address) {
+                        return false;
+                    }
+                    return true;
+                });
+                return after;
             });
-            return after;
         });
     },
 

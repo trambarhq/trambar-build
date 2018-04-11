@@ -37,10 +37,12 @@ function find(db, criteria) {
             deleted: false,
         };
         return Repo.find(db, 'global', criteria, '*').then((repos) => {
-            var serverIds = _.uniq(_.map(repos, (repo) => {
+            var serverIds = _.uniq(_.filter(_.map(repos, (repo) => {
                 var repoLink = _.find(repo.external, { type: 'gitlab' });
-                return repoLink.server_id;
-            }));
+                if (repoLink) {
+                    return repoLink.server_id;
+                }
+            })));
             // load server record
             var criteria = {
                 id: serverIds,
@@ -99,10 +101,10 @@ function findOne(db, criteria) {
             throw new Error(`Missing server: ${criteria.server_id}`);
         }
         if (!repo) {
-            throw new Error(`Missing project: ${criteria.repo_id}`);
+            throw new Error(`Missing repository: ${criteria.repo_id}`);
         }
         if (!project) {
-            throw new Error(`Missing repository: ${criteria.project_id}`);
+            throw new Error(`Missing project: ${criteria.project_id}`);
         }
         if (!_.includes(project.repo_ids, repo.id)) {
             throw new Error(`Repository "${repo.name}" (${repo.id}) is not associated with project "${project.name}"`);

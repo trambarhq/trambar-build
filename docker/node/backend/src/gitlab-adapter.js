@@ -44,7 +44,8 @@ function start() {
                 var app = Express();
                 app.use(BodyParser.json());
                 app.set('json spaces', 2);
-                app.post('/srv/gitlab/hook/:serverId/:repoId/:projectId', handleHookCallback);
+                app.post('/srv/gitlab/hook/:serverId', handleSystemHookCallback);
+                app.post('/srv/gitlab/hook/:serverId/:repoId/:projectId', handleProjectHookCallback);
                 server = app.listen(80, () => {
                     resolve();
                 });
@@ -65,15 +66,7 @@ function start() {
                 'story',
                 'system',
             ];
-            return db.listen(tables, 'change', handleDatabaseChanges, 100).then(() => {
-                var tables = [
-                    'project',
-                    'repo',
-                    'user',
-                    'role',
-                ];
-                return db.listen(tables, 'sync', handleDatabaseSyncRequests, 0);
-            });
+            return db.listen(tables, 'change', handleDatabaseChanges, 100);
         }).then(() => {
             // update repo lists, in case they were added while Trambar is down
             var criteria = {
@@ -293,10 +286,16 @@ function handleStoryChangeEvent(db, event) {
         // change is caused by an import
         return;
     }
+    if (event.current.deleted) {
+        return;
+    }
     var exporting = false;
     if (event.current.type === 'issue') {
         if (event.diff.details) {
             // title or labels might have changed
+            exporting = true;
+        } else if (event.diff.external) {
+            // issue might have been moved or deleted
             exporting = true;
         }
     } else if (_.includes(StoryTypes.trackable, event.current.type)) {
@@ -313,8 +312,10 @@ function handleStoryChangeEvent(db, event) {
     }
     var promise = Story.findOne(db, event.schema, { id: event.id }, '*').then((story) => {
         return Project.findOne(db, 'global', { name: event.schema }, '*').then((project) => {
-            console.log(`Exporting story ${story.id}`);
-            return IssueExporter.exportStory(db, project, story);
+            return System.findOne(db, 'global', { deleted: false }, '*').then((system) => {
+                console.log(`Exporting story ${story.id}`);
+                return IssueExporter.exportStory(db, system, project, story);
+            });
         });
     }).catch((err) => {
         console.error(err);
@@ -367,64 +368,47 @@ function handleSystemChangeEvent(db, event) {
 }
 
 /**
- * Called when another process posts synchronization requests
- *
- * @param  {Array<Object>} events
- */
-function handleDatabaseSyncRequests(events) {
-    var db = database;
-    Promise.each(events, (event) => {
-        switch (event.table) {
-            case 'project': return handleProjectSyncEvent(db, event);
-            case 'repo': return handleRepoSyncEvent(db, event);
-            case 'user': return handleUserSyncEvent(db, event);
-        }
-    });
-}
-
-/**
- * Make sure member lists are in sync
- *
- * @param  {Database} db
- * @param  {Object} event
- *
- * @return {Promise}
- */
-function handleProjectSyncEvent(db, event) {
-    // TODO
-}
-
-/**
- * Make sure information about repos is in sync
- *
- * @param  {Database} db
- * @param  {Object} event
- *
- * @return {Promise}
- */
-function handleRepoSyncEvent(db, event) {
-    // TODO
-}
-
-/**
- * Make sure information about imported users are in sync
- *
- * @param  {Database} db
- * @param  {Object} event
- *
- * @return {Promise}
- */
-function handleUserSyncEvent(db, event) {
-    // TODO
-}
-
-/**
- * Called when Gitlab sends a notification
+ * Called when Gitlab sends a notification about change to system
  *
  * @param  {Request} req
  * @param  {Response} res
  */
-function handleHookCallback(req, res) {
+function handleSystemHookCallback(req, res) {
+    var glHookEvent = req.body;
+    var db = database;
+    var serverId = parseInt(req.params.serverId);
+    return Server.findOne(db, 'global', { id: serverId, deleted: false }, '*').then((server) => {
+        switch (glHookEvent.event_name) {
+            case 'project_create':
+            case 'project_destroy':
+            case 'project_rename':
+            case 'project_transfer':
+            case 'project_update':
+            case 'user_add_to_team':
+            case 'user_remove_from_team':
+                return taskQueue.schedule(`import_system_events:${server.id}`, () => {
+                    return RepoImporter.importRepositories(db, server);
+                });
+            case 'user_create':
+            case 'user_destroy':
+                return taskQueue.schedule(`import_system_events:${server.id}`, () => {
+                    return UserImporter.importUsers(db, server);
+                });
+        }
+    }).catch((err) => {
+        console.error(err);
+    }).finally(() => {
+        res.end();
+    });
+}
+
+/**
+ * Called when Gitlab sends a notification about change to repo
+ *
+ * @param  {Request} req
+ * @param  {Response} res
+ */
+function handleProjectHookCallback(req, res) {
     var glHookEvent = req.body;
     var db = database;
     var criteria = {

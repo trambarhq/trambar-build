@@ -93,7 +93,11 @@ function canJoinProject(user, project) {
     if (!user || !project) {
         return false;
     }
-    return _.get(project, 'settings.membership.allow_user_request', false);
+    if (user.type === 'guest') {
+        return _.get(project, 'settings.membership.allow_guest_request', false);
+    } else {
+        return _.get(project, 'settings.membership.allow_user_request', false);
+    }
 }
 
 /**
@@ -412,6 +416,10 @@ function canRemoveReaction(user, story, reaction, access) {
  * @return {Boolean}
  */
 function canHideReaction(user, story, reaction, access) {
+    if (reaction.type === 'vote') {
+        // votes can't be hidden since it affects the count
+        return false;
+    }
     if (canModerate(user)) {
         if (access === 'read-write') {
             return true;
