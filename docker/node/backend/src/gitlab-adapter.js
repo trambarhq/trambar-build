@@ -25,6 +25,8 @@ var Story = require('accessors/story');
 var System = require('accessors/system');
 var User = require('accessors/user');
 
+const USER_SCAN_INTERVAL = 10;
+
 module.exports = {
     start,
     stop,
@@ -89,6 +91,9 @@ function start() {
                     return EventImporter.importEvents(db, server, repo, project);
                 });
             });
+        }).then(() => {
+            startPeriodicUserScan();
+            startPeriodicExportRetry();
         });
     });
 }
@@ -96,6 +101,8 @@ function start() {
 function stop() {
     return Shutdown.close(server).then(() => {
         if (database) {
+            stopPeriodicUserScan();
+            stopPeriodicExportRetry();
             return getServerAddress(database).then((host) => {
                 return HookManager.removeHooks(database, host);
             }).finally(() => {
@@ -138,20 +145,29 @@ function handleDatabaseChanges(events) {
  * @return {Promise|undefined}
  */
 function handleServerChangeEvent(db, event) {
-    if (event.diff.settings) {
-        var criteria = {
-            id: event.id,
-            type: 'gitlab',
-            deleted: false,
-        };
-        return Server.findOne(db, 'global', criteria, '*').then((server) => {
+    var criteria = {
+        id: event.id,
+        type: 'gitlab',
+        deleted: false,
+    };
+    return Server.findOne(db, 'global', criteria, '*').then((server) => {
+        if (event.diff.settings) {
             if (hasAccessToken(server)) {
                 return taskQueue.schedule(`import_server_repos:${server.id}`, () => {
                     return RepoImporter.importRepositories(db, server);
                 });
             }
-        });
-    }
+        }
+        if (event.diff.deleted || event.diff.disabled) {
+            return getServerAddress(db).then((host) => {
+                if (!event.current.deleted && !event.current.disabled) {
+                    return HookManager.installServerHooks(db, host, server);
+                } else {
+                    return HookManager.removeServerHooks(db, host, server);
+                }
+            });
+        }
+    });
 }
 
 /**
@@ -310,16 +326,34 @@ function handleStoryChangeEvent(db, event) {
     if (!exporting) {
         return;
     }
-    var promise = Story.findOne(db, event.schema, { id: event.id }, '*').then((story) => {
-        return Project.findOne(db, 'global', { name: event.schema }, '*').then((project) => {
+    var schema = event.schema;
+    var storyId = event.id;
+    return exportStory(db, schema, storyId).catch((err) => {
+        queueExportRetry(schema, storyId);
+        console.error(err);
+        return null;
+    });
+}
+
+var exportPromises = [];
+
+/**
+ * Export a story to a repo associated with the project
+ *
+ * @param  {Database} db
+ * @param  {String} schema
+ * @param  {Number} storyId
+ *
+ * @return {Promise<Story>}
+ */
+function exportStory(db, schema, storyId) {
+    var promise = Story.findOne(db, schema, { id: storyId }, '*').then((story) => {
+        return Project.findOne(db, 'global', { name: schema }, '*').then((project) => {
             return System.findOne(db, 'global', { deleted: false }, '*').then((system) => {
                 console.log(`Exporting story ${story.id}`);
                 return IssueExporter.exportStory(db, system, project, story);
             });
         });
-    }).catch((err) => {
-        console.error(err);
-        return null;
     }).finally(() => {
         _.pull(exportPromises, promise);
     });
@@ -327,7 +361,86 @@ function handleStoryChangeEvent(db, event) {
     return promise;
 }
 
-var exportPromises = [];
+var exportRetryQueue = [];
+
+/**
+ * Add story to retry queue
+ *
+ * @param  {String} schema
+ * @param  {Number} storyId
+ * @param  {Number|undefined} delay
+ */
+function queueExportRetry(schema, storyId, delay) {
+    var time = new Date;
+    if (!delay) {
+        delay = 30 * 1000;
+    }
+    var existing = _.find(exportRetryQueue, { schema, storyId });
+    if (existing) {
+        // obviously, it has just failed again
+        existing.time = time;
+    } else {
+        exportRetryQueue.push({ schema, storyId, delay, time })
+    }
+}
+
+var exportRetryInterval;
+
+/**
+ * Start retrying failed export exports
+ */
+function startPeriodicExportRetry() {
+    exportRetryInterval = setInterval(retryFailedExports, 10 * 1000);
+
+    // look for story they have failed and put them into the queue
+    var db = database;
+    return RepoAssociation.find(db).each((a) => {
+        var { server, repo, project } = a;
+        var schema = project.name;
+        // this will pick up issues that need to be created or moved
+        // it'll miss those that need to be deleted
+        var criteria = {
+            external_object: ExternalDataUtils.extendLink(server, repo, {
+                issue: { id: 0 }
+            }),
+            deleted: false,
+            published: true,
+            ready: true,
+        };
+        return Story.find(db, schema, criteria, 'id').each((row) => {
+            queueExportRetry(schema, row.id, 15 * 1000);
+        });
+    });
+}
+
+/**
+ * Stop retrying export exports
+ */
+function stopPeriodicExportRetry() {
+    exportRetryInterval = clearInterval(exportRetryInterval);
+}
+
+/**
+ * Check export retry queue and schedule stories for export
+ */
+function retryFailedExports() {
+    var db = database;
+    var now = new Date;
+    var ready = _.remove(exportRetryQueue, (entry) => {
+        var elapsed = now - entry.time;
+        return (elapsed > entry.delay);
+    });
+    _.each(ready, (entry) => {
+        var { schema, storyId, delay } = entry;
+        taskQueue.schedule(`retry_story_export:${storyId}`, () => {
+            return exportStory(db, schema, storyId).catch((err) => {
+                // double the delay when it fails again
+                delay = Math.min(10 * 60 * 1000, delay * 2);
+                queueExportRetry(schema, storyId, delay);
+            });
+        });
+    });
+}
 
 /**
  * Wait for any ongoing export operations to complete
@@ -432,6 +545,39 @@ function handleProjectHookCallback(req, res) {
         console.error(err);
     }).finally(() => {
         res.end();
+    });
+}
+
+var userScanInterval;
+
+/**
+ * Start reimporting users periodically
+ */
+function startPeriodicUserScan() {
+    userScanInterval = setInterval(reimportUsers, USER_SCAN_INTERVAL * 60 * 1000);
+}
+
+/**
+ * Stop reimporting users periodically
+ */
+function stopPeriodicUserScan() {
+    userScanInterval = clearInterval(userScanInterval);
+}
+
+/**
+ * Reimport users from all GitLab servers
+ */
+function reimportUsers() {
+    var db = database;
+    var criteria = {
+        type: 'gitlab',
+        deleted: false,
+        disabled: false,
+    };
+    return Server.find(db, 'global', criteria, '*').each((server) => {
+        return taskQueue.schedule(`reimport_user:${server.id}`, () => {
+            return UserImporter.importUsers(db, server);
+        });
     });
 }
 
