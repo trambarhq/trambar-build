@@ -15,8 +15,8 @@ COPY client /var/www/trambar/client
 COPY admin /var/www/trambar/admin
 
 # copy scripts
-COPY scripts/ssl-* /usr/bin/
-RUN chmod 744 /usr/bin/ssl-*
+COPY scripts/ssl-* /usr/local/bin/
+RUN chmod 744 /usr/local/bin/ssl-*
 
 # place crontab file into cron.d
 ADD crontab /etc/cron.d/certbot
