@@ -1,0 +1,18 @@
+#!/bin/bash
+
+if [[ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem && -f /etc/letsencrypt/live/${DOMAIN}/privkey.pem ]]; then
+  exit 0
+fi
+
+# wait for Nginx to come online
+sleep 1
+
+certbot certonly --non-interactive --agree-tos --email ${EMAIL} --webroot --webroot-path /var/www/trambar/client --domains ${DOMAIN}
+
+# add certs to nginx config
+export CERT_PATH=/etc/letsencrypt/live/${DOMAIN}/fullchain.pem
+export KEY_PATH=/etc/letsencrypt/live/${DOMAIN}/privkey.pem
+ssl-config
+
+# load new configuration
+service nginx reload
