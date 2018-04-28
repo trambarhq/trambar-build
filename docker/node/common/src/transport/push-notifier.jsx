@@ -57,27 +57,40 @@ module.exports = React.createClass({
     },
 
     /**
-     * Wait for database queries to end or time limit to be reached
+     * Wait for database queries to start
      *
      * @param  {Number} limit
      *
      * @return {Promise}
      */
-    waitForSearchIdling: function(limit) {
+    waitForSearchStart: function(limit) {
+        if (this.searchStartPromise) {
+            return this.searchStartPromise;
+        }
         return new Promise((resolve, reject) => {
-            var timeout;
-            var onSearchIdling = () => {
-                resolve();
-                this.onSearchIdling = null;
-                clearTimeout(timeout);
-            };
-            // ensure it's trigger within a given amount of time
-            timeout = setTimeout(onSearchIdling, limit);
-            if (this.onSearchIdling) {
-                // call the previous handler
-                this.onSearchIdling();
-            }
-            this.onSearchIdling = onSearchIdling;
+            this.onSearchStart = resolve;
+        }).timeout(limit).finally(() => {
+            this.onSearchStart = null;
+            this.searchStartPromise = null;
+        });
+    },
+
+    /**
+     * Wait for database queries to end
+     *
+     * @param  {Number} limit
+     *
+     * @return {Promise}
+     */
+    waitForSearchEnd: function(limit) {
+        if (this.searchEndPromise) {
+            return this.searchEndPromise;
+        }
+        return new Promise((resolve, reject) => {
+            this.onSearchEnd = resolve;
+        }).timeout(limit).finally(() => {
+            this.onSearchEnd = null;
+            this.searchEndPromise = null;
         });
     },
 
@@ -111,9 +124,15 @@ module.exports = React.createClass({
      */
     componentWillReceiveProps: function(nextProps) {
         // check if database queries have finished
-        if (this.props.searching && !nextProps.searching) {
-            if (this.onSearchIdling) {
-                this.onSearchIdling();
+        if (this.props.searching !== nextProps.searching) {
+            if (nextProps.searching) {
+                if (this.onSearchStart) {
+                    this.onSearchStart();
+                }
+            } else {
+                if (this.onSearchEnd) {
+                    this.onSearchEnd();
+                }
             }
         }
         if (!this.props.online && nextProps.online) {
@@ -370,23 +389,34 @@ module.exports = React.createClass({
      */
     handleGCMNotification: function(data) {
         var additionalData = data.additionalData;
-        var address = additionalData.address;
-        var changes = additionalData.changes;
-        if (changes) {
-            this.triggerNotifyEvent(address, changes);
+        Promise.try(() => {
+            var address = additionalData.address;
+            var changes = additionalData.changes;
+            if (changes) {
+                this.triggerNotifyEvent(address, changes);
 
-            this.waitForSearchIdling(10 * 1000).then(() => {
-                signalBackgroundProcessCompletion(data.notId);
-            });
-        } else if (data.message) {
-            // if notification was received in the background, the event is
-            // triggered when the user clicks on the notification
+                if (!data.additionalData.foreground) {
+                    // wait for any database queries to finish
+                    return this.waitForSearchStart(250).then(() => {
+                        return this.waitForSearchEnd(5000);
+                    }).catch((err) => {
+                        // timeout
+                    });
+                }
+            } else if (data.message) {
+                // if notification was received in the background, the event is
+                // triggered when the user clicks on the notification
+                if (!additionalData.foreground) {
+                    var alert = recreateAlert(additionalData);
+                    this.triggerAlertClickEvent(address, alert);
+                }
+            }
+        }).finally(() => {
             if (!additionalData.foreground) {
-                var alert = recreateAlert(additionalData);
-                this.triggerAlertClickEvent(address, alert);
+                console.log('background retrieval complete');
                 signalBackgroundProcessCompletion(data.notId);
             }
-        }
+        });
     },
 
     /**
@@ -507,7 +537,9 @@ function recreateAlert(additionalData) {
 function signalBackgroundProcessCompletion(notId) {
     if (pushNotification && notId) {
         if (cordova.platformId === 'ios') {
-            pushNotification.finish(notId);
+            var success = () => {};
+            var failure = () => {};
+            pushNotification.finish(success, failure, notId);
         }
     }
 }
