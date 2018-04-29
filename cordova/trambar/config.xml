@@ -20,6 +20,7 @@
     <preference name="WindowsStoreIdentityName" value="30766ChungLeong.47921BED0F054" />
     <preference name="WindowsStorePublisherName" value="CN=551DB39E-3E6F-4B89-81B2-B0C4C4CFEFA1" />
     <preference name="WindowsStoreDisplayName" value="Chung Leong" />
+    <preference name="BackupWebStorage" value="local" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
     <allow-intent href="tel:*" />
@@ -128,7 +129,7 @@
     </plugin>
     <plugin name="cordova-plugin-wkwebview-engine" spec="^1.1.4" />
     <plugin name="cordova-plugin-statusbar" spec="^2.4.1" />
-    <plugin name="cordova-plugin-file-transfer" spec="^1.7.0" />
+    <plugin name="cordova-plugin-file-transfer" spec="^1.7.1" />
     <plugin name="cordova-plugin-network-information" spec="^2.0.1" />
     <plugin name="cordova-plugin-video-editor" spec="^1.1.3" />
     <plugin name="cordova-plugin-code-push" spec="^1.11.10" />
