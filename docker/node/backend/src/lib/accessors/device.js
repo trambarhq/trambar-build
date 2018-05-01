@@ -1,7 +1,11 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
+var Request = require('request');
+var CSVParse = require('csv-parse');
+var ToUTF8 = require('to-utf-8')
 var HTTPError = require('errors/http-error');
 var Data = require('accessors/data');
+var StringSimilarity = require('string-similarity');
 
 module.exports = _.create(Data, {
     schema: 'global',
@@ -132,21 +136,29 @@ module.exports = _.create(Data, {
      */
     import: function(db, schema, objects, originals, credentials, options) {
         return Data.import.call(this, db, schema, objects, originals, credentials, options).each((object) => {
-            // look for an existing record with the same UUID
-            if (object.user_id && object.uuid) {
-                if (object.user_id !== credentials.user.id) {
-                    throw new HTTPError(403);
+            if (object.user_id && object.user_id !== credentials.user.id) {
+                throw new HTTPError(403);
+            }
+            console.log(object);
+            if (!object.deleted && !object.id) {
+                // look for an existing record with the same UUID
+                if (object.user_id && object.uuid) {
+                    var criteria = {
+                        user_id: object.user_id,
+                        uuid: object.uuid,
+                        deleted: false
+                    };
+                    return this.findOne(db, schema, criteria, 'id').then((row) => {
+                        if (row) {
+                            object.id = row.id;
+                        }
+                        return getDeviceDisplayName(object).then((displayName) => {
+                            if (displayName) {
+                                _.set(object, 'details.display_name', displayName);
+                            }
+                        });
+                    });
                 }
-                var criteria = {
-                    user_id: object.user_id,
-                    uuid: object.uuid,
-                    deleted: false
-                };
-                return this.findOne(db, schema, criteria, 'id').then((row) => {
-                    if (row) {
-                        object.id = row.id;
-                    }
-                });
             }
         });
     },
@@ -173,3 +185,236 @@ module.exports = _.create(Data, {
         return false;
     },
 });
+
+/**
+ * Return marketing name of a device
+ *
+ * @param  {Device} device
+ *
+ * @return {Promise<String|undefined>}
+ */
+function getDeviceDisplayName(device) {
+    var type = _.get(device, 'type');
+    var manufacturer = _.get(device, 'details.manufacturer');
+    var model = _.get(device, 'details.name');
+    if (type === 'ios') {
+        return getAppleDeviceDisplayName(model);
+    } else if (type === 'android') {
+        return getAndroidDeviceDisplayName(manufacturer, model);
+    } else if (type === 'windows') {
+        return getWindowsDeviceDisplayName(model);
+    } else {
+        return Promise.resolve();
+    }
+}
+
+/**
+ * Return marketing name of an Apple device
+ *
+ * @param  {String} model
+ *
+ * @return {Promise<String|undefined>}
+ */
+function getAppleDeviceDisplayName(model) {
+    var name;
+    _.each(appleModelNumbers, (regExp, key) => {
+        if (regExp.test(model)) {
+            name = key;
+            return false;
+        }
+    });
+    return Promise.resolve(name);
+}
+
+/**
+ * Return marketing name of a Windows device
+ *
+ * @param  {String} model
+ *
+ * @return {Promise<String|undefined>}
+ */
+function getWindowsDeviceDisplayName(model) {
+    var name;
+    _.each(wpModelNumbers, (regExp, key) => {
+        if (regExp.test(model)) {
+            name = key;
+            return false;
+        }
+    });
+    return Promise.resolve(name);
+}
+
+/**
+ * Return marketing name of an Android device
+ *
+ * @param  {String} model
+ *
+ * @return {Promise<String|undefined>}
+ */
+function getAndroidDeviceDisplayName(manufacturer, model) {
+    return getAndroidDeviceDatabase().then((db) => {
+        var key1 = _.toLower(manufacturer);
+        var key2 = _.toLower(model);
+        var name = _.get(db, [ key1, key2 ]);
+        if (!name) {
+            // name might not match exactly--look for one that's close enough
+            var candidates = [];
+            _.each(db, (devices, k1) => {
+                var sim1 = StringSimilarity.compareTwoStrings(k1, key1);
+                if (sim1 >= 0.75) {
+                    _.each(devices, (name, k2) => {
+                        var sim2  = StringSimilarity.compareTwoStrings(k2, key2);
+                        if (sim2 >= 0.75) {
+                            candidates.push({ name, score: sim1 + sim2 });
+                        }
+                    });
+                }
+            });
+            candidates = _.sortBy(candidates, 'score');
+            if (!_.isEmpty(candidates)) {
+                name = _.last(candidates).name;
+            }
+        }
+        return Promise.resolve(name);
+    });
+}
+
+var androidDeviceDatabase = {};
+
+/**
+ * Return Android device name database
+ *
+ * @param  {String} model
+ *
+ * @return {Promise<Object>}
+ */
+function getAndroidDeviceDatabase() {
+    if (androidDeviceDatabase) {
+        return Promise.resolve(androidDeviceDatabase);
+    }
+    return fetchAndroidDeviceDatabase().then((db) => {
+        androidDeviceDatabase = db;
+        return db;
+    }).catch((err) => {
+        return {};
+    });
+}
+
+/**
+ * Download Android device name database
+ *
+ * @return {Promise<Object>}
+ */
+function fetchAndroidDeviceDatabase() {
+    return new Promise((resolve, reject) => {
+        var db = {};
+        var line = 0;
+        var parser = CSVParse({ delimiter: ',' });
+        parser.on('readable', () => {
+            var record;
+            while(record = parser.read()) {
+                if (line++ > 0) {
+                    var brand = _.toLower(record[0]);
+                    var names = _.split(record[1], /\s,\s/);
+                    var name = _.replace(names[0], /_/g, ' ');
+                    var model = _.toLower(record[3])
+                    _.set(db, [ brand, model ], name);
+                }
+            }
+        });
+        parser.on('error', (err) => {
+            reject(err);
+        });
+        parser.on('finish', () => {
+            resolve(db);
+        });
+        var input = Request('http://storage.googleapis.com/play_public/supported_devices.csv');
+        input.on('err', (err) => {
+            reject(err);
+        });
+        input.pipe(ToUTF8()).pipe(parser);
+    });
+}
+
+/**
+ * Update Android device name database
+ */
+function updateAndroidDeviceDatabase() {
+    fetchAndroidDeviceDatabase().then((db) => {
+        androidDeviceDatabase = db;
+    }).catch((err) => {
+    });
+}
+
+function findClosest(hash, key) {
+    if (hash) {
+        var entry = hash[key];
+        if (!entry) {
+            var keys = _.keys(hash);
+            var closestKey = StringSimilarity.findBestMatch(key, keys);
+            entry = hashs[closestKey];
+        }
+        return entry;
+    }
+}
+
+if (process.env.POSTGRES_USER !== 'admin_role') {
+    setTimeout(updateAndroidDeviceDatabase, 1000);
+    setInterval(updateAndroidDeviceDatabase, 7 * 24 * 60 * 60 * 1000);
+}
+
+var appleModelNumbers = {
+    'iPhone': /iPhone1,1/,
+    'iPhone 3G': /iPhone1,2/,
+    'iPhone 3GS': /iPhone2,1/,
+    'iPhone 4': /iPhone3,[123]/,
+    'iPhone 4S': /iPhone4,1/,
+    'iPhone 5': /iPhone5,[12]/,
+    'iPhone 5C': /iPhone5,[34]/,
+    'iPhone 5S': /iPhone6,[12]/,
+    'iPhone 6': /iPhone7,2/,
+    'iPhone 6 Plus': /iPhone7,1/,
+    'iPhone 6S': /iPhone8,1/,
+    'iPhone 6S Plus': /iPhone8,2/,
+    'iPhone 6SE': /iPhone8,4/,
+    'iPhone 7': /iPhone9,[13]/,
+    'iPhone 7 Plus': /iPhone9,[24]/,
+    'iPhone 8': /iPhone10,[14]/,
+    'iPhone 8 Plus': /iPhone10,[25]/,
+    'iPhone X': /iPhone10,[36]/,
+
+    'iPad': /iPad1,1/,
+    'iPad 2': /iPad2,[1234]/,
+    'iPad mini': /iPad2,[567]/,
+    'iPad (3rd generation)': /iPad3,[123]/,
+    'iPad (4th generation)': /iPad3,[456]/,
+    'iPad Air': /iPad4,[123]/,
+    'iPad mini 2': /iPad4,[456]/,
+    'iPad mini 3': /iPad4,[789]/,
+    'iPad mini 4': /iPad5,[12]/,
+    'iPad Air 2': /iPad5,[34]/,
+    'iPad Pro': /iPad6,[3478]/,
+    'iPad (5th generation)': /iPad6,1[12]/,
+    'iPad Pro (2nd generation)': /iPad7,[1234]/,
+    'iPad (6th generation)': /iPad7,[56]/,
+};
+
+var wpModelNumbers = {
+    'Lumia 532': /RM\-(1032|1034|1115)/,
+    'Lumia 535': /RM\-(1089|1090|1091|1092)/,
+    'Lumia 550': /RM\-(1127|1128|1129)/,
+    'Lumia 630': /RM\-(976|977|978|979)/,
+    'Lumia 635': /RM\-(975)/,
+    'Lumia 636': /RM\-(1027)/,
+    'Lumia 638': /RM\-(1010)/,
+    'Lumia 640': /RM\-(1072|1073|1074|1075|1076|1077|1113)/,
+    'Lumia 640XL': /RM\-(1062|1063|1064|1065|1066|1067|1096)/,
+    'Lumia 650': /RM\-(1150|1152|1153|1154)/,
+    'Lumia 730': /RM\-(1040)/,
+    'Lumia 735': /RM\-(1039)/,
+    'Lumia 830': /RM\-(983|984|985|1049)/,
+    'Lumia 1520': /RM\-(937|939|938|940)/,
+    'Lumia 950': /RM\-(1104|1105|1118)/,
+    'Lumia 950XL': /RM\-(1085|1116)/,
+    'Lumia Icon': /RM\-(927)/,
+};
