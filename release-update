@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+var CodePush = require('./lib/code-push');
+var Shell = require('./lib/shell');
+
+var targetOS = (process.argv[2] || 'all').toLowerCase();
+var deployment = process.argv[3] || 'Staging';
+var appNames = {
+    android: 'Trambar-Android',
+    ios: 'Trambar-iOS',
+};
+
+Shell.chdir(__dirname);
+Shell.chdir(`cordova/trambar`);
+[ 'android', 'ios' ].forEach((os) => {
+    if (os === targetOS || targetOS === 'all') {
+        var appName = appNames[os];
+        CodePush.release(appName, os, deployment);
+    }
+});
+Shell.chdir(__dirname);

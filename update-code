@@ -10,7 +10,6 @@ var wf = 'codebase';
 
 var part = process.argv[2] || 'all';
 
-
 // update or create working folder
 Shell.chdir(__dirname);
 var branch = Git.getCurrentBranch();
