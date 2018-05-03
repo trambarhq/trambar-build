@@ -110,6 +110,16 @@ module.exports = React.createClass({
                     }, 30 * 1000);
                 }
             }
+
+            if (nextProps.inForeground) {
+                // check connectivity on resume
+                var online = this.isOnline();
+                if (this.state.online !== online) {
+                    this.setState({ online }, () => {
+                        this.triggerChangeEvent(true, type);
+                    });
+                }
+            }
         }
     },
 
