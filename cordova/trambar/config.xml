@@ -140,6 +140,7 @@
         <variable name="PHOTOLIBRARY_ADD_USAGE_DESCRIPTION" value="Users can share photos and videos with their colleagues" />
         <variable name="PHOTOLIBRARY_USAGE_DESCRIPTION" value="Users can share photos and videos with their colleagues" />
     </plugin>
+    <plugin name="cordova-plugin-add-swift-support" spec="^1.7.2" />
     <engine name="ios" spec="^4.5.4" />
     <engine name="windows" spec="^5.0.0" />
     <engine name="android" spec="^7.0.0" />

@@ -13,6 +13,7 @@
     "code-push": "^2.0.4",
     "cordova-android": "^7.0.0",
     "cordova-ios": "^4.5.4",
+    "cordova-plugin-add-swift-support": "^1.7.2",
     "cordova-plugin-android-permissions": "^1.0.0",
     "cordova-plugin-camera": "^4.0.1",
     "cordova-plugin-code-push": "^1.11.10",
@@ -64,12 +65,13 @@
         "MICROPHONE_USAGE_DESCRIPTION": "your microphone usage message here",
         "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "your photo library usage message here",
         "PHOTOLIBRARY_USAGE_DESCRIPTION": "your photo library usage message here"
-      }
+      },
+      "cordova-plugin-add-swift-support": {}
     },
     "platforms": [
-      "ios",
       "windows",
-      "android"
+      "android",
+      "ios"
     ]
   }
 }
