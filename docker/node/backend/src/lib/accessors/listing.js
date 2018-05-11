@@ -276,6 +276,7 @@ function chooseStories(row) {
     var retention = _.get(row.filters, 'retention', 24 * HOUR);
     var newStories = _.get(row.details, 'candidates', []);
     var oldStories = _.get(row.details, 'stories', []);
+    var backfillingStories = _.get(row.details, 'backfill_candidates', []);
 
     // we want to show as many new stories as possible
     var newStoryCount = newStories.length;
@@ -316,11 +317,14 @@ function chooseStories(row) {
             }
         }
     }
-    if (oldStoryCount !== oldStories.length || newStories.length > 0) {
+    if (oldStoryCount !== oldStories.length || newStories.length > 0 || backfillingStories.length > 0) {
         if (oldStoryCount !== oldStories.length) {
             // remove older stories
             oldStories = _.slice(oldStories, oldStories.length - oldStoryCount);
         }
+        // remember the latest story that was considered (not necessarily going
+        // to be included in the list)
+        var latestStory = _.maxBy(newStories, 'btime');
         if (newStoryCount !== newStories.length) {
             // apply retrieval time rating adjustments
             var context = ByRetrievalTime.createContext(newStories, row);
@@ -328,7 +332,7 @@ function chooseStories(row) {
                 story.rating += ByRetrievalTime.calculateRating(context, story);
             });
 
-            // remove lowly rate stories
+            // remove lowly rated stories
             newStories = _.orderBy(newStories, [ 'rating', 'btime' ], [ 'asc', 'asc' ]);
             newStories = _.slice(newStories, newStories.length - newStoryCount);
             newStories = _.orderBy(newStories, [ 'btime' ], [ 'asc' ]);
@@ -343,8 +347,36 @@ function chooseStories(row) {
                 rtime: rtime,
             };
         });
-        row.details.stories = _.concat(oldStories, newStories);
+        var stories = _.concat(oldStories, newStories);
+        var gap = limit - _.size(stories);
+        if (gap > 0) {
+            // apply retrieval time rating adjustments
+            var context = ByRetrievalTime.createContext(backfillingStories, row);
+            _.eachRight(backfillingStories, (story) => {
+                story.rating += ByRetrievalTime.calculateRating(context, story);
+            });
+
+            // remove lowly rated stories
+            backfillingStories = _.orderBy(backfillingStories, [ 'rating', 'btime' ], [ 'asc', 'asc' ]);
+            backfillingStories = _.slice(backfillingStories, 0, gap);
+
+            // fill the gap
+            _.each(backfillingStories, (story) => {
+                var index = _.sortedIndexBy(stories, story, 'btime');
+                stories.splice(index, 0, story);
+            });
+        }
+        var earliestStory = _.minBy(stories, 'btime');
+
+        if (latestStory) {
+            row.details.latest = latestStory.btime;
+        }
+        if (earliestStory) {
+            row.details.earliest = earliestStory.btime;
+        }
+        row.details.stories = stories;
         row.details.candidates = [];
+        row.details.backfill_candidates = undefined;
         // the object is going to be sent prior to being saved
         // bump up the generation number manually
         row.gn += 1;
