@@ -107,7 +107,6 @@ module.exports = _.create(ExternalData, {
             CREATE INDEX ON ${table} USING gin(("payloadTokens"(details))) WHERE "payloadTokens"(details) IS NOT NULL;
             CREATE INDEX ON ${table} ((COALESCE(ptime, btime))) WHERE published = true AND ready = true;
             CREATE INDEX ON ${table} (id) WHERE unfinished_tasks > 0 AND published = true AND deleted = false;
-            CREATE INDEX ON ${table} (id) WHERE published = true AND deleted = true AND published_version_id IS NULL;
         `;
         //
         return db.execute(sql);
@@ -123,7 +122,7 @@ module.exports = _.create(ExternalData, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted', 'type', 'tags', 'unfinished_tasks', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'ptime', 'external', 'mtime', 'itime', 'etime' ];
+            var propNames = [ 'deleted', 'type', 'tags', 'unfinished_tasks', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'external', 'ptime', 'btime', 'mtime', 'itime', 'etime' ];
             return this.createNotificationTriggers(db, schema, propNames).then(() => {
                 return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'ptime' ]).then(() => {
                     var Task = require('accessors/task');

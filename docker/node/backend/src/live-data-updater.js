@@ -110,27 +110,16 @@ function handleDatabaseChanges(events) {
         });
     });
     // invalidate story cache
-    var storyEvents = _.filter(events, { table: 'story' });
-    if (!_.isEmpty(storyEvents)) {
-        Story.clearCache((search) => {
-            return !_.some(storyEvents, (event) => {
-                if (search.schema === event.schema) {
-                    if (search.criteria.published && search.criteria.ready) {
-                        if (event.diff.published || event.diff.ready) {
-                            if (event.current.published && event.current.ready) {
-                                return true;
-                            }
-                        }
-                    }
-                    if (search.criteria.deleted !== undefined) {
-                        if (event.diff.deleted && event.previous.deleted !== undefined) {
-                            return true;
-                        }
-                    }
+    Story.clearCache((search) => {
+        return !_.some(events, (event) => {
+            if (event.table === 'story' && search.schema === event.schema) {
+                // don't clear cache unless change is made to a published story
+                if (event.current.published === true || event.diff.published) {
+                    return true;
                 }
-            });
+            }
         });
-    }
+    });
 }
 
 /**
@@ -387,7 +376,6 @@ function updateListing(schema, id) {
             var latestStoryTime = _.get(listing.details, 'latest');
             var earliestStoryTime = _.get(listing.details, 'earliest');
             var retrievedStories = _.get(listing.details, 'stories', []);
-            var retainingStories;
 
             var filterCriteria = _.pick(listing.filters, _.keys(Story.criteria));
             var criteria = _.extend({}, filterCriteria, {
@@ -401,41 +389,40 @@ function updateListing(schema, id) {
             var columns = _.flatten(_.map(StoryRaters, 'columns'));
             columns = _.concat(columns, [ 'id', 'COALESCE(ptime, btime) AS btime' ]);
             columns = _.uniq(columns);
-            return Story.findCached(db, schema, criteria, columns.join(', ')).then((rows) => {
-                // take out stories that were published, then subsequently removed
-                var criteria = {
-                    published: true,
-                    deleted: true,
-                    published_version_id: null,
-                };
-                return Story.findCached(db, schema, criteria, 'id').then((deletedRows) => {
-                    var deletedRowsHash = _.keyBy(deletedRows, 'id');
-                    retainingStories = _.filter(retrievedStories, (story) => {
-                        return !deletedRowsHash[story.id];
-                    });
-                    return rows;
+            return Story.findCached(db, schema, criteria, columns.join(', ')).then((stories) => {
+                // take out stories retrieved earlier that are no longer
+                // available for one reason or another (deleted, made private, etc)
+                //
+                // in theory, a story might be absent simply because there're so
+                // many newer ones that it's now excluded by the row limit; in
+                // that case the story is bound to get pushed out anyway so
+                // removing it (for the wrong reason) isn't an issue
+                var storyHash = _.keyBy(stories, 'id');
+                var retainingStories = _.filter(retrievedStories, (story) => {
+                    return !!storyHash[story.id];
                 });
-            }).then((rows) => {
-                // get unretrieved rows that are newer than the last story considered
-                var retrievedStoriesHash = _.keyBy(retrievedStories);
-                var newRows = _.filter(rows, (row) => {
-                    if (!retrievedStoriesHash[row.id]) {
-                        if (!latestStoryTime || row.btime > latestStoryTime) {
+
+                // get unretrieved stories that are newer than the last story considered
+                var retrievedStoriesHash = _.keyBy(retrievedStories, 'id');
+                var newStories = _.filter(stories, (story) => {
+                    if (!retrievedStoriesHash[story.id]) {
+                        if (!latestStoryTime || story.btime > latestStoryTime) {
                             return true;
                         }
                     }
                 });
 
                 var oldRows = [];
-                var gap = Math.max(0, limit - _.size(retainingStories) - _.size(newRows));
+                var gap = Math.max(0, limit - _.size(retainingStories) - _.size(newStories));
                 if (gap > 0) {
-                    // need to backfill the list--look for rows with btime
+                    // need to backfill the list--look for stories with btime
                     // earlier than stories already retrieved
                     //
-                    // first, find rows that were rejected earlier
-                    var ignoredRows = _.filter(rows, (row) => {
-                        if (!retrievedStoriesHash[row.id]) {
-                            if (earliestStoryTime && row.btime <= earliestStoryTime) {
+                    // first, find stories that were rejected earlier
+                    var newStoriesHash = _.keyBy(newStories, 'id');
+                    var ignoredStories = _.filter(stories, (story) => {
+                        if (!retrievedStoriesHash[story.id] && !newStoriesHash[story.id]) {
+                            if (earliestStoryTime && story.btime <= earliestStoryTime) {
                                 return true;
                             }
                         }
@@ -443,31 +430,31 @@ function updateListing(schema, id) {
 
                     // don't go too far back--just one day
                     var dayBefore = Moment(earliestStoryTime).subtract(1, 'day').toISOString();
-                    oldRows = _.filter(ignoredRows, (row) => {
-                        return (row.btime >= dayBefore);
+                    oldRows = _.filter(ignoredStories, (story) => {
+                        return (story.btime >= dayBefore);
                     });
 
                     if (_.size(oldRows) < gap) {
                         // not enough--just take whatever
-                        oldRows = _.slice(ignoredRows, 0, gap);
+                        oldRows = _.slice(ignoredStories, 0, gap);
                     }
                 }
-                var selectedRows = _.concat(newRows, oldRows);
+                var selectedRows = _.concat(newStories, oldRows);
 
                 // asynchronously retrieve data needed to rate the candidates
                 return prepareStoryRaterContexts(db, schema, selectedRows, listing).then((contexts) => {
-                    var candidates = _.map(newRows, (row) => {
+                    var candidates = _.map(newStories, (story) => {
                         return {
-                            id: row.id,
-                            btime: row.btime,
-                            rating: calculateStoryRating(contexts, row),
+                            id: story.id,
+                            btime: story.btime,
+                            rating: calculateStoryRating(contexts, story),
                         };
                     });
-                    var backfillCandidates = _.map(oldRows, (row) => {
+                    var backfillCandidates = _.map(oldRows, (story) => {
                         return {
-                            id: row.id,
-                            btime: row.btime,
-                            rating: calculateStoryRating(contexts, row),
+                            id: story.id,
+                            btime: story.btime,
+                            rating: calculateStoryRating(contexts, story),
                         };
                     });
                     if (_.isEmpty(backfillCandidates)) {
