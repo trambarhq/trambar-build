@@ -25,7 +25,7 @@ Shell.chdir(__dirname);
 Shell.chdir(`cordova/trambar`);
 [ 'android', 'ios' ].forEach((os) => {
     if (os === targetOS || targetOS === 'all') {
-        CodePush.release(appNames[os], os, deployment, mandatory);
+        CodePush.release(appNames[os], os, deployment, (os === 'android') && mandatory);
     }
 });
 Shell.chdir(__dirname);
