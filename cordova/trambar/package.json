@@ -11,10 +11,12 @@
   "license": "Apache-2.0",
   "dependencies": {
     "code-push": "^2.0.4",
-    "cordova-android": "^7.0.0",
+    "cordova-android": "^7.1.0",
+    "cordova-android-support-gradle-release": "^1.4.2",
     "cordova-ios": "^4.5.4",
     "cordova-plugin-add-swift-support": "^1.7.2",
     "cordova-plugin-android-permissions": "^1.0.0",
+    "cordova-plugin-background-upload": "^1.0.8",
     "cordova-plugin-camera": "^4.0.1",
     "cordova-plugin-code-push": "^1.11.10",
     "cordova-plugin-compat": "^1.2.0",
@@ -66,7 +68,11 @@
         "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "your photo library usage message here",
         "PHOTOLIBRARY_USAGE_DESCRIPTION": "your photo library usage message here"
       },
-      "cordova-plugin-add-swift-support": {}
+      "cordova-plugin-add-swift-support": {},
+      "cordova-plugin-background-upload": {},
+      "cordova-android-support-gradle-release": {
+        "ANDROID_SUPPORT_VERSION": "27.+"
+      }
     },
     "platforms": [
       "windows",
