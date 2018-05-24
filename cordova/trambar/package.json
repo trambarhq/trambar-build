@@ -23,7 +23,6 @@
     "cordova-plugin-device": "^2.0.1",
     "cordova-plugin-dialogs": "^2.0.1",
     "cordova-plugin-file": "^6.0.1",
-    "cordova-plugin-file-transfer": "^1.7.1",
     "cordova-plugin-ios-camera-permissions": "^1.2.0",
     "cordova-plugin-media-capture": "^3.0.1",
     "cordova-plugin-network-information": "^2.0.1",
@@ -57,16 +56,15 @@
       },
       "cordova-plugin-wkwebview-engine": {},
       "cordova-plugin-statusbar": {},
-      "cordova-plugin-file-transfer": {},
       "cordova-plugin-network-information": {},
       "cordova-plugin-video-editor": {},
       "cordova-plugin-code-push": {},
       "cordova-plugin-zip": {},
       "cordova-plugin-ios-camera-permissions": {
-        "CAMERA_USAGE_DESCRIPTION": "your usage message",
-        "MICROPHONE_USAGE_DESCRIPTION": "your microphone usage message here",
-        "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "your photo library usage message here",
-        "PHOTOLIBRARY_USAGE_DESCRIPTION": "your photo library usage message here"
+        "CAMERA_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues",
+        "MICROPHONE_USAGE_DESCRIPTION": "Users can share videos with their colleagues",
+        "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues",
+        "PHOTOLIBRARY_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues"
       },
       "cordova-plugin-add-swift-support": {},
       "cordova-plugin-background-upload": {},

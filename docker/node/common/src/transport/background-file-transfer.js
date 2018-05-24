@@ -4,7 +4,6 @@ var FileTransferManager = window.FileTransferManager;
 module.exports = {
     initialize,
     send,
-    isAvailable,
 };
 
 var transfers = [];
@@ -26,10 +25,10 @@ function initialize() {
                 transfer.onProgress(upload);
             }
         });
-        uploader.on('error', function(err) {
-            var transfer = _.find(transfers, { id: err.id });
+        uploader.on('error', function(upload) {
+            var transfer = _.find(transfers, { id: upload.id });
             if (transfer && transfer.onError) {
-                transfer.onError(err);
+                transfer.onError(new Error(upload.error));
             }
         });
     } catch(err) {
@@ -62,13 +61,4 @@ function send(token, path, url, options) {
          onProgress: _.get(options, 'onProgress'),
      };
      transfers.push(transfer);
-}
-
-/**
- * Return true if background uploading is available
- *
- * @return {Boolean}
- */
-function isAvailable() {
-    return !!uploader;
 }
