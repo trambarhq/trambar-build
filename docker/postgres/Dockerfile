@@ -26,4 +26,4 @@ RUN apt-get -y update &&\
     apt-get -y remove wget &&\
     apt-get clean
 
-CMD ["postgres", "-c", "plv8.start_proc=plv8_init"]
+CMD ["postgres", "-c", "plv8.start_proc=public.plv8_init"]
