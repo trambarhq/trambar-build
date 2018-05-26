@@ -2,7 +2,7 @@ FROM postgres:9.6
 
 # install plv8 extension, disabling V8 tests to shorten build time
 RUN apt-get -y update &&\
-    apt-get -y --no-install-recommends install wget ca-certificates curl git build-essential postgresql-server-dev-9.6 &&\
+    apt-get -y --no-install-recommends install wget ca-certificates curl git python build-essential postgresql-server-dev-9.6 &&\
     mkdir -p /tmp/build &&\
     cd /tmp/build &&\
     wget https://github.com/plv8/plv8/archive/v2.1.0.tar.gz &&\
@@ -14,7 +14,7 @@ RUN apt-get -y update &&\
     make install PG_CONFIG=/usr/lib/postgresql/9.6/bin/pg_config &&\
     strip /usr/lib/postgresql/9.6/lib/plv8.so &&\
     rm -rf /tmp/build &&\
-    apt-get -y remove wget curl git build-essential postgresql-server-dev-9.6 &&\
+    apt-get -y remove wget curl git python build-essential postgresql-server-dev-9.6 &&\
     apt-get clean
 
 # download dictionary files
