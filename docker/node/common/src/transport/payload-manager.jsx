@@ -4,6 +4,9 @@ var React = require('react'), PropTypes = React.PropTypes;
 var Moment = require('moment');
 var BlobStream = require('transport/blob-stream');
 var Payload = require('transport/payload');
+if (process.env.PLATFORM === 'cordova') {
+    var BackgroundFileTransfer = require('transport/background-file-transfer');
+}
 
 var Database = require('data/database');
 var Route = require('routing/route');
@@ -15,7 +18,7 @@ var DiagnosticsSection = require('widgets/diagnostics-section');
 module.exports = React.createClass({
     displayName: 'PayloadManager',
     propTypes: {
-        hasConnection: PropTypes.bool,
+        online: PropTypes.bool,
         database: PropTypes.instanceOf(Database),
         route: PropTypes.instanceOf(Route),
 
@@ -29,7 +32,7 @@ module.exports = React.createClass({
      */
     getDefaultProps: function() {
         return {
-            hasConnection: true,
+            online: true,
         };
     },
 
@@ -96,7 +99,7 @@ module.exports = React.createClass({
     stream: function() {
         var params = this.props.route.parameters;
         var stream = new BlobStream(params.address);
-        if (!this.props.hasConnection) {
+        if (!this.props.online) {
             stream.suspend();
         }
         this.updateList('streams', (before) => {
@@ -123,6 +126,24 @@ module.exports = React.createClass({
             }).then(() => {
                 this.triggerChangeEvent();
             });
+        }
+    },
+
+    /**
+     * Cancel payloads
+     *
+     * @param  {Array<String>} tokens
+     */
+    abandon: function(tokens) {
+        var payloads = _.filter(this.payloads, (payload) => {
+            return _.includes(tokens, payload.token);
+        });
+        if (!_.isEmpty(payloads)) {
+            _.each(payloads, (payload) => {
+                payload.cancel();
+            });
+            _.pullAll(this.payloads, payloads);
+            this.triggerChangeEvent();
         }
     },
 
@@ -217,7 +238,7 @@ module.exports = React.createClass({
     },
 
     /**
-     * Return the n
+     * Return the number of files and bytes remaining
      *
      * @return {Object|null}
      */
@@ -225,8 +246,12 @@ module.exports = React.createClass({
         var bytes = 0;
         var files = 0;
         _.each(this.payloads, (payload) => {
-            files += payload.getRemainingFiles();
-            bytes += payload.getRemainingBytes();
+            if (payload.started) {
+                if (!payload.failed && !payload.sent) {
+                    files += payload.getRemainingFiles();
+                    bytes += payload.getRemainingBytes();
+                }
+            }
         });
         return (files > 0) ? { files, bytes } : null;
     },
@@ -275,6 +300,15 @@ module.exports = React.createClass({
     },
 
     /**
+     * Initialize background file transfer plugin on mount
+     */
+    componentDidMount: function() {
+        if (process.env.PLATFORM === 'cordova') {
+            BackgroundFileTransfer.initialize();
+        }
+    },
+
+    /**
      * Fire initial onChange event upon receiving a database object
      *
      * @param  {Object} prevProps
@@ -289,9 +323,9 @@ module.exports = React.createClass({
                 this.updateBackendProgress();
             }
         }
-        if (prevProps.hasConnection !== this.props.hasConnection) {
+        if (prevProps.online !== this.props.online) {
             _.each(this.streams, (stream) => {
-                if (this.props.hasConnection) {
+                if (this.props.online) {
                     stream.resume();
                 } else {
                     stream.suspend();

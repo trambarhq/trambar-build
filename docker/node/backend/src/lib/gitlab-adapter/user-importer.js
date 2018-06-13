@@ -30,6 +30,7 @@ module.exports = {
  * Import an activity log entry about someone joining or leaving the project
  *
  * @param  {Database} db
+ * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {Project} project
@@ -38,9 +39,9 @@ module.exports = {
  *
  * @return {Promise<Story>}
  */
-function importEvent(db, server, repo, project, author, glEvent) {
+function importEvent(db, system, server, repo, project, author, glEvent) {
     var schema = project.name;
-    var storyNew = copyEventProperties(null, server, repo, author, glEvent);
+    var storyNew = copyEventProperties(null, system, server, repo, author, glEvent);
     return Story.insertOne(db, schema, storyNew).then((story) => {
         if (glEvent.action_name === 'joined') {
             if (!_.includes(project.user_ids, author.id)) {
@@ -59,6 +60,7 @@ function importEvent(db, server, repo, project, author, glEvent) {
  * Copy properties of event
  *
  * @param  {Story|null} story
+ * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {User} author
@@ -66,13 +68,19 @@ function importEvent(db, server, repo, project, author, glEvent) {
  *
  * @return {Story}
  */
-function copyEventProperties(story, server, repo, author, glEvent) {
+function copyEventProperties(story, system, server, repo, author, glEvent) {
+    var defLangCode = _.get(system, [ 'settings', 'input_languages', 0 ]);
+
     var storyAfter = _.cloneDeep(story) || {};
     ExternalDataUtils.inheritLink(storyAfter, server, repo, {
         user: { id: glEvent.author_id }
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'type', {
         value: 'member',
+        overwrite: 'always',
+    });
+    ExternalDataUtils.importProperty(storyAfter, server, 'language_codes', {
+        value: [ defLangCode ],
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
@@ -162,7 +170,9 @@ function importUsers(db, server) {
                     }
                 });
             }).tap(() => {
-                taskLog.report(index + 1, count, { added, disabled, modified });
+                if (!_.isEmpty(added) || !_.isEmpty(disabled) || !_.isEmpty(modified)) {
+                    taskLog.report(index + 1, count, { added, disabled, modified });
+                }
             });
         });
     }).tap(() => {
@@ -332,14 +342,6 @@ function copyUserProperties(user, server, image, glUser) {
     } else {
         userType = mapping.user;
     }
-    var overwriteUserType = 'never';
-    if (user) {
-        // overwrite user type if new type has more privileges
-        if (UserTypes.indexOf(userType) > UserTypes.indexOf(user.type)) {
-            overwriteUserType = 'always';
-        }
-    }
-
     var userAfter = _.cloneDeep(user);
     if (!userAfter) {
         userAfter = {
@@ -355,7 +357,7 @@ function copyUserProperties(user, server, image, glUser) {
     });
     ExternalDataUtils.importProperty(userAfter, server, 'type', {
         value: userType,
-        overwrite: overwriteUserType,
+        overwrite: 'match-previous:type',
     });
     ExternalDataUtils.importProperty(userAfter, server, 'username', {
         value: glUser.username,
@@ -450,9 +452,7 @@ function importProfileImage(glUser) {
     var options = {
         json: true,
         url: 'http://media_server/srv/internal/import',
-        body: {
-            external_url: url
-        },
+        body: { url },
     };
     return new Promise((resolve, reject) => {
         Request.post(options, (err, resp, body) => {

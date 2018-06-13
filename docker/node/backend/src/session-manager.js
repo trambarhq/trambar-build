@@ -51,8 +51,8 @@ function start() {
         .post(handleSessionStart)
         .get(handleSessionRetrieval)
         .delete(handleSessionTermination);
-    app.route('/srv/session/privacy/?')
-        .get(handlePrivacyRequest);
+    app.route('/srv/session/:name(terms|privacy)/?')
+        .get(handleLegalDocumentRequest);
     app.route('/srv/session/htpasswd/?')
         .post(handleHTPasswdRequest);
     app.route('/srv/session/:provider/:callback?/?')
@@ -241,6 +241,7 @@ function handleSessionRetrieval(req, res) {
         }
         if (session.token) {
             session.activated = true;
+            session.etime = getFutureTime(SESSION_LIFETIME_CLIENT);
             return saveSession(session).then((session) => {
                 return {
                     session: _.pick(session, 'token', 'user_id', 'etime')
@@ -397,17 +398,23 @@ function handleOAuthActivationRequest(req, res, done) {
 }
 
 /**
- * Handle privacy policy
+ * Handle requests for legal documents
  *
  * @param  {Request}   req
  * @param  {Response}  res
  */
-function handlePrivacyRequest(req, res) {
-    var path = `${__dirname}/templates/privacy.ejs`;
-    FS.readFileAsync(path, 'utf-8').then((text) => {
-        var fn = _.template(text);
-        var html = fn({});
-        res.type('html').send(html);
+function handleLegalDocumentRequest(req, res) {
+    return Database.open().then((db) => {
+        return System.findOne(db, 'global', { deleted: false }, 'details').then((system) => {
+            var name = req.params.name;
+            var path = `${__dirname}/templates/${name}.ejs`;
+            var company = _.get(system, 'details.company_name', 'Our company');
+            FS.readFileAsync(path, 'utf-8').then((text) => {
+                var fn = _.template(text);
+                var html = fn({ company });
+                res.type('html').send(html);
+            });
+        });
     });
 }
 
@@ -482,7 +489,7 @@ function authenticateThruPassport(req, res, system, server, params) {
         }, '');
         var address = _.get(system, 'settings.address');
         if (!address) {
-            throw new HTTPError(400);
+            throw new HTTPError(400, { message: 'Missing site address' });
         }
         var settings = addServerSpecificSettings(server, {
             clientID: server.settings.oauth.client_id,
@@ -619,7 +626,10 @@ function findServer(serverId) {
  */
 function findOAuthServers(area) {
     return Database.open().then((db) => {
-        var criteria = { deleted: false };
+        var criteria = {
+            deleted: false,
+            disabled: false,
+        };
         return Server.find(db, 'global', criteria, '*').filter((server) => {
             return canProvideAccess(server, area);
         });
@@ -689,7 +699,7 @@ function findUserByName(username) {
 }
 
 /**
- * Remove devices specified session handle(s)
+ * Remove devices connected with specified session handle(s)
  *
  * @param  {String|Array<String>} handles
  *
@@ -914,15 +924,9 @@ function copyUserProperties(user, server, image, profile) {
         var email = _.first(_.map(profile.emails, 'value'));
         var username = profile.username || proposeUsername(profile);
         var userType = _.get(server, 'settings.user.type');
-        var overwriteUserType = 'never';
         var userAfter;
         if (user) {
             userAfter = _.cloneDeep(user);
-
-            // overwrite user type if new type has more privileges
-            if (UserTypes.indexOf(userType) > UserTypes.indexOf(user.type)) {
-                overwriteUserType = 'always';
-            }
         } else {
             userAfter = {
                 role_ids: _.get(server, 'settings.user.role_ids', []),
@@ -938,7 +942,7 @@ function copyUserProperties(user, server, image, profile) {
         });
         ExternalDataUtils.importProperty(userAfter, server, 'type', {
             value: userType,
-            overwrite: overwriteUserType,
+            overwrite: 'match-previous:type',
         });
         ExternalDataUtils.importProperty(userAfter, server, 'username', {
             value: username,
@@ -1034,9 +1038,7 @@ function retrieveProfileImage(profile) {
     var options = {
         json: true,
         url: 'http://media_server/srv/internal/import',
-        body: {
-            external_url: url
-        },
+        body: { url },
     };
     return new Promise((resolve, reject) => {
         Request.post(options, (err, resp, body) => {

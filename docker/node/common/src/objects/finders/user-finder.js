@@ -58,14 +58,16 @@ function findUsers(db, ids) {
  * Find all users
  *
  * @param  {Database} db
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<User>}
  */
-function findAllUsers(db) {
+function findAllUsers(db, minimum) {
     return db.find({
         schema: 'global',
         table: 'user',
         criteria: {},
+        minimum
     });
 }
 
@@ -92,14 +94,16 @@ function findProjectMembers(db, projects) {
  * Find users who aren't deleted
  *
  * @param  {Database} db
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<User>}
  */
-function findExistingUsers(db) {
+function findExistingUsers(db, minimum) {
     return db.find({
         schema: 'global',
         table: 'user',
         criteria: { deleted: false },
+        minimum
     });
 }
 
@@ -107,10 +111,11 @@ function findExistingUsers(db) {
  * Find users who aren't deleted or disabled
  *
  * @param  {Database} db
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<User>}
  */
-function findActiveUsers(db) {
+function findActiveUsers(db, minimum) {
     return db.find({
         schema: 'global',
         table: 'user',
@@ -118,6 +123,7 @@ function findActiveUsers(db) {
             deleted: false,
             disabled: false,
         },
+        minimum
     });
 }
 
@@ -126,16 +132,18 @@ function findActiveUsers(db) {
  *
  * @param  {Database} db
  * @param  {Array<Role>} roles
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<User>}
  */
-function findUsersWithRoles(db, roles) {
+function findUsersWithRoles(db, roles, minimum) {
     var ids = _.map(roles, 'id');
     ids = _.sortBy(_.uniq(ids));
     return db.find({
         schema: 'global',
         table: 'user',
         criteria: { role_ids: ids },
+        minimum
     });
 }
 

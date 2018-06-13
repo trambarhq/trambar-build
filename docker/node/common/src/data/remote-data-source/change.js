@@ -1,5 +1,6 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
+var Async = require('async-do-while');
 
 var LocalSearch = require('data/local-search');
 var TemporaryID = require('data/remote-data-source/temporary-id');
@@ -26,14 +27,17 @@ function Change(location, objects, options) {
     this.delayed = false;
     this.dispatching = false;
     this.committed = false;
+    this.canceled = false;
     this.timeout = 0;
     this.promise = new Promise((resolve, reject) => {
         this.resolvePromise = resolve;
         this.rejectPromise = reject;
     });
-    this.dependencies = [];
+    this.dependentPromises = [];
     this.delivered = null;
     this.received = null;
+    this.error = null;
+    this.time = null;
 
     if (options) {
         if (options.delay) {
@@ -48,6 +52,7 @@ function Change(location, objects, options) {
         }
         this.onConflict = options.onConflict;
     }
+    this.onDispatch = null;
 }
 
 /**
@@ -64,30 +69,47 @@ Change.prototype.dispatch = function() {
         this.dispatching = true;
         return;
     }
-    this.dispatched = true;
-    this.resolveDependencies().then(() => {
-        return this.onDispatch(this).then((objects) => {
-            this.committed = true;
-            this.received = objects;
-            if (!this.canceled) {
-                this.resolvePromise(objects);
-            } else {
-                // ignore the results
-                this.resolvePromise([]);
-            }
+    Promise.all(this.dependentPromises).then(() => {
+        var attempt = 1;
+        var delay = 1000;
+        Async.while(() => {
+            return !this.committed && !this.canceled && !this.dispatched;
         });
-    }).catch((err) => {
-        if (!this.canceled) {
-            this.rejectPromise(err);
-        } else {
-            // ignore the error
-            this.resolvePromise([]);
-        }
+        Async.do(() => {
+            this.dispatched = true;
+            return this.onDispatch(this).then((objects) => {
+                this.committed = true;
+                this.received = objects;
+                this.time = new Date;
+                if (!this.canceled) {
+                    this.resolvePromise(objects);
+                } else {
+                    // ignore the results
+                    this.resolvePromise([]);
+                }
+            }).catch((err) => {
+                if (err.statusCode >= 400 && err.statusCode <= 499) {
+                    this.error = err;
+                    this.rejectPromise(err);
+                }
+                this.dispatched = false;
+                // wait a bit then try again
+                delay = Math.min(delay * 2, 10 * 1000);
+                return Promise.delay(delay).then(() => {
+                    if (!this.canceled) {
+                        attempt++;
+                    } else {
+                        this.resolvePromise([]);
+                    }
+                });
+            });
+        });
+        return Async.end();
     });
 };
 
 /**
- * Cancel a change, triggering the attached onCancel handler
+ * Cancel a change
  */
 Change.prototype.cancel = function() {
     if (this.canceled) {
@@ -95,19 +117,14 @@ Change.prototype.cancel = function() {
         return;
     }
     this.canceled = true;
-    if (this.timeout) {
-        clearTimeout(this.timeout);
-    }
     if (this.dispatched) {
         // the change was already sent
         return;
     }
-    this.onCancel(this).then(() => {
-        // return empty array
-        this.resolvePromise([]);
-    }).catch((err) => {
-        this.rejectPromise(err);
-    });
+    if (this.timeout) {
+        clearTimeout(this.timeout);
+    }
+    this.resolvePromise([]);
 };
 
 /**
@@ -123,55 +140,47 @@ Change.prototype.merge = function(earlierOp) {
     _.each(this.objects, (object, i) => {
         var index = _.findIndex(earlierOp.objects, { id: object.id });
         if (index !== -1 && !earlierOp.removed[index]) {
-            var earlierObject = earlierOp.objects[index];
-            // merge in missing properties from earlier op
-            _.forIn(earlierObject, (value, key) => {
-                if (object[key] === undefined) {
-                    object[key] = value;
-                }
-            });
-            // indicate that the object has been superceded
-            earlierOp.removed[index] = true;
-
-            if (earlierOp.dispatched) {
+            if (!earlierOp.dispatched || object.id >= 1) {
+                var earlierObject = earlierOp.objects[index];
+                // merge in missing properties from earlier op
+                _.forIn(earlierObject, (value, key) => {
+                    if (object[key] === undefined) {
+                        object[key] = value;
+                    }
+                });
+                // indicate that the object has been superceded
+                earlierOp.removed[index] = true;
+            } else {
                 // the prior operation has already been sent; if it's going
                 // to yield a permanent database id, then this operation
                 // needs to wait for it to resolve first
-                if (object.id < 1) {
-                    dependent = true;
-                }
+                dependent = true;
             }
         }
     });
     if (dependent) {
-        this.dependencies.push(earlierOp);
-    }
-    // cancel the earlier op if everything was removed from it
-    if (_.every(earlierOp.removed)) {
-        earlierOp.cancel();
-    }
-};
-
-/**
- * Wait for dependent operations to finish, then resolve temporary ids
- *
- * @return {Promise}
- */
-Change.prototype.resolveDependencies = function() {
-    return Promise.each(this.dependencies, (earlierOp) => {
-        return earlierOp.promise.catch((err) => {});
-    }).then(() => {
-        _.each(this.objects, (object) => {
-            if (object.id < 1) {
-                _.each(this.dependencies, (earlierOp) => {
+        // we need to replace the temporary ID with a permanent one before
+        // this change is dispatch; otherwise multiple objects would be created
+        var dependentPromise = earlierOp.promise.then(() => {
+            _.each(this.objects, (object) => {
+                if (object.id < 1) {
                     var id = earlierOp.findPermanentID(object.id);
                     if (id) {
                         object.id = id;
                     }
-                });
-            }
+                }
+            });
+        }).catch((err) => {
+            // if earlierOp failed, then presumably no new database row was
+            // created; we could proceed as if the operation didn't happen
         });
-    });
+        this.dependentPromises.push(dependentPromise);
+    } else {
+        // cancel the earlier op if everything was removed from it
+        if (_.every(earlierOp.removed)) {
+            earlierOp.cancel();
+        }
+    }
 };
 
 /**
@@ -285,10 +294,19 @@ Change.prototype.noop = function() {
 /**
  * Return true if location matches
  *
- * @param  {Object} location
+ * @param  {Object} other
  *
  * @return {Boolean}
  */
-Change.prototype.matchLocation = function(location) {
-    return _.isEqual(this.location, location);
+Change.prototype.matchLocation = function(other) {
+    if (this.location.address !== other.address) {
+        return false;
+    }
+    if (this.location.schema !== other.schema) {
+        return false;
+    }
+    if (this.location.table !== other.table) {
+        return false;
+    }
+    return true;
 }

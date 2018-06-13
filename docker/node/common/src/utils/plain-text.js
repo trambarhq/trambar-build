@@ -71,10 +71,14 @@ function renderSurveyResults(text, voteCounts) {
                 var count = _.get(tally, [ 'answers', item.key ], 0);
                 var percent = Math.round((total > 0) ? count / total * 100 : 0) + '%';
                 var color = `color-${item.key % 12}`;
+                var className = 'vote-count';
+                if (count === total) {
+                    className += ' unanimous';
+                }
                 return (
                     <span>
                         {item.before}
-                        <span className="vote-count">
+                        <span className={className}>
                             <span className="label">{renderEmoji(item.label)}</span>
                             <span className="bar">
                                 <span className={`filled ${color}`} style={{ width: percent }} />
@@ -166,7 +170,7 @@ var emojiStyle = {
 
 function renderEmojiImage(parentKey, code, string, characterKey) {
     var key = (parentKey !== undefined) ? `${parentKey}.${characterKey}` : characterKey;
-    var src = `//twemoji.maxcdn.com/2/72x72/${code}.png`;
+    var src = `https://twemoji.maxcdn.com/2/72x72/${code}.png`;
     return <img key={key} alt={string} draggable={false} src={src} style={emojiStyle} />;
 }
 

@@ -26,11 +26,12 @@ describe('RemoteDataSource', function() {
         },
         retrievalFlags: {
         },
-        hasConnection: true,
+        online: true,
         inForeground: true,
         prefetching: false,
         sessionRetryInterval: 100,
         cache: cache,
+        cacheValidation: false,
 
         onChange: null,
         onSearch: null,
@@ -656,7 +657,8 @@ describe('RemoteDataSource', function() {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
-                    criteria: {}
+                    criteria: {},
+                    blocking: 'never',
                 };
                 var discovery = 0;
                 var retrieval = 0;
@@ -707,7 +709,8 @@ describe('RemoteDataSource', function() {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
-                    criteria: {}
+                    criteria: {},
+                    blocking: 'never'
                 };
                 var discovery = 0;
                 var retrieval = 0;
@@ -746,7 +749,7 @@ describe('RemoteDataSource', function() {
         it('should not perform remote search when there is no connection', function() {
             var onChangePromise = new ManualPromise;
             dataSourceWrapper.setProps({
-                hasConnection: false,
+                online: false,
                 onChange: onChangePromise.resolve,
             });
             var location = { address: 'http://level6.moria.me', schema: 'global', table: 'user' };
@@ -1144,7 +1147,7 @@ describe('RemoteDataSource', function() {
                 expect(found).to.have.lengthOf(1);
 
                 // disable connection
-                dataSourceWrapper.setProps({ hasConnection: false });
+                dataSourceWrapper.setProps({ online: false });
             }).then(() => {
                 // this call will stall
                 return dataSource.remove(location, [ objects[0] ]).timeout(100);
@@ -1159,7 +1162,7 @@ describe('RemoteDataSource', function() {
                 });
             }).then(() => {
                 // restore connection
-                dataSourceWrapper.setProps({ hasConnection: true });
+                dataSourceWrapper.setProps({ online: true });
                 return null;
             }).delay(200).then(() => {
                 expect(storage).to.equal(1);
@@ -1186,8 +1189,8 @@ describe('RemoteDataSource', function() {
             });
         })
     })
-    describe('#clear()', function() {
-        it('should remove recent searches at a given server', function() {
+    describe('#abandon()', function() {
+        it('should make searches at a given server dirty', function() {
             var location = { address: 'http://toilet.helms-deep.me', schema: 'global', table: 'project' };
             var objects = [ { id: 1, gn: 2, name: 'fart' } ];
             var discovery = 0, retrieval = 0;
@@ -1207,7 +1210,7 @@ describe('RemoteDataSource', function() {
                     });
                 });
             };
-            var query = _.extend(location, { blocking: true, criteria: {} });
+            var query = _.extend(location, { blocking: 'expired', criteria: {} });
             return dataSource.find(query).then((found) => {
                 expect(found).to.have.lengthOf(1);
                 expect(discovery).to.equal(1);
@@ -1220,7 +1223,7 @@ describe('RemoteDataSource', function() {
                     });
                 });
             }).then(() => {
-                dataSource.clear(location.address, location.schema);
+                dataSource.abandon(location.address, location.schema);
             }).then(() => {
                 return dataSource.find(query).then((found) => {
                     expect(found).to.have.lengthOf(1);
@@ -1260,13 +1263,16 @@ describe('RemoteDataSource', function() {
                 expect(retrieval).to.equal(1);
             }).then(() => {
                 objects = [ { id: 1, gn: 3, name: 'cheese' } ];
-                var changes = {
-                    'global.project': {
-                        ids: [ 1 ],
-                        gns: [ 3 ],
+                var changes = [
+                    {
+                        address: location.address,
+                        schema: 'global',
+                        table: 'project',
+                        id: 1,
+                        gn: 3,
                     }
-                };
-                return dataSource.invalidate(location.address, changes);
+                ];
+                return dataSource.invalidate(changes);
             }).then(() => {
                 var onChangePromise = new ManualPromise;
                 dataSourceWrapper.setProps({
@@ -1287,7 +1293,7 @@ describe('RemoteDataSource', function() {
                 });
             });
         })
-        it('should flag all searches at a server as dirty when no change info is given', function() {
+        it('should flag all searches at all servers as dirty when no change info is given', function() {
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     if (/discovery/.test(url)) {
@@ -1297,39 +1303,6 @@ describe('RemoteDataSource', function() {
                     }
                 });
             };
-            dataSource.clear();
-            var queries = [
-                { address: 'http://mirkwood.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
-                { address: 'http://mirkwood.me', schema: 'global', table: 'user', criteria: {}, blocking: true },
-                { address: 'http://mirkwood.me', schema: 'global', table: 'smerf', criteria: {}, blocking: true },
-                { address: 'http://rivendell.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
-            ];
-            return Promise.each(queries, (query) => {
-                return dataSource.find(query);
-            }).then(() => {
-                return dataSource.invalidate('http://mirkwood.me');
-            }).then(() => {
-                var searches = dataSource.recentSearchResults;
-                _.each(searches, (search) => {
-                    if (search.address === 'http://mirkwood.me') {
-                        expect(search.dirty).to.be.true;
-                    } else if (search.address === 'http://rivendell.me') {
-                        expect(search.dirty).to.be.false;
-                    }
-                });
-            });
-        })
-        it('should flag all searches at all servers as dirty when a server is not specified', function() {
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    if (/discovery/.test(url)) {
-                        return { ids: [], gns: [] };
-                    } else if (/retrieval/.test(url)) {
-                        return [];
-                    }
-                });
-            };
-            dataSource.clear();
             var queries = [
                 { address: 'http://mirkwood.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
                 { address: 'http://mirkwood.me', schema: 'global', table: 'user', criteria: {}, blocking: true },
@@ -1389,13 +1362,16 @@ describe('RemoteDataSource', function() {
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = {
-                    'global.project': {
-                        ids: [ 7 ],
-                        gns: [ 2 ],
+                var changes = [
+                    {
+                        address: location.address,
+                        schema: 'global',
+                        table: 'project',
+                        id: 7,
+                        gn: 2,
                     }
-                };
-                return dataSource.invalidate(location.address, changes);
+                ];
+                return dataSource.invalidate(changes);
             }).then(() => {
                 // wait for save() to finish
                 return savePromise;
@@ -1436,19 +1412,21 @@ describe('RemoteDataSource', function() {
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = {
-                    'global.project': {
-                        ids: [ 7 ],
-                        gns: [ 2 ],
+                var changes = [
+                    {
+                        address: location.address,
+                        schema: 'global',
+                        table: 'project',
+                        id: 7,
+                        gn: 2,
                     }
-                };
-                return dataSource.invalidate(location.address, changes);
+                ];
+                return dataSource.invalidate(changes);
             }).then(() => {
                 // wait for save() to finish
                 return savePromise;
             }).then((results) => {
                 expect(results).to.have.lengthOf(0);
-                expect(retrieval).to.equal(0);
                 expect(storage).to.equal(0);
             });
         })
@@ -1486,13 +1464,16 @@ describe('RemoteDataSource', function() {
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = {
-                    'global.project': {
-                        ids: [ 7 ],
-                        gns: [ 2 ],
+                var changes = [
+                    {
+                        address: location.address,
+                        schema: 'global',
+                        table: 'project',
+                        id: 7,
+                        gn: 2,
                     }
-                };
-                return dataSource.invalidate(location.address, changes);
+                ];
+                return dataSource.invalidate(changes);
             }).then(() => {
                 // wait for save() to finish
                 return savePromise;

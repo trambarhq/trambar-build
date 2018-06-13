@@ -13,10 +13,11 @@ module.exports = {
  * @param  {Database} db
  * @param  {User} user
  * @param  {Array<Story>} stories
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Bookmark>>}
  */
-function findBookmarksByUser(db, user, stories) {
+function findBookmarksByUser(db, user, stories, minimum) {
     var storyIds = _.map(stories, 'id');
     storyIds = _.sortBy(_.uniq(storyIds));
     if (_.isEmpty(storyIds) || !user) {
@@ -28,7 +29,7 @@ function findBookmarksByUser(db, user, stories) {
             user_ids: [ user.id ],
             story_ids: storyIds,
         },
-        prefetch: false,
+        minimum,
     });
 }
 
@@ -37,14 +38,17 @@ function findBookmarksByUser(db, user, stories) {
  *
  * @param  {Database} db
  * @param  {User} user
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Bookmark>>}
  */
-function findBookmarksForUser(db, user) {
+function findBookmarksForUser(db, user, minimum) {
     return db.find({
         table: 'bookmark',
         criteria: {
             target_user_id: user.id,
-        }
+        },
+        prefetch: true,
+        minimum
     });
 }

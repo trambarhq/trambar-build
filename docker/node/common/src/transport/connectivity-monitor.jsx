@@ -2,13 +2,18 @@ var _ = require('lodash');
 var Promise = require('bluebird');
 var React = require('react'), PropTypes = React.PropTypes;
 
+// mixins
+var UpdateCheck = require('mixins/update-check');
+
 // widgets
 var Diagnostics = require('widgets/diagnostics');
 var DiagnosticsSection = require('widgets/diagnostics-section');
 
 module.exports = React.createClass({
     displayName: 'ConnectivityMonitor',
+    mixins: [ UpdateCheck ],
     propTypes: {
+        inForeground: PropTypes.bool,
         onChange: PropTypes.func,
     },
 
@@ -18,17 +23,37 @@ module.exports = React.createClass({
      * @return {Object}
      */
     getInitialState: function() {
+        return {
+            online: this.isOnline(),
+            type: this.getConnectionType(),
+        };
+    },
+
+    /**
+     * Return true if there's network connection
+     *
+     * @return {Boolean}
+     */
+    isOnline: function() {
+        if (process.env.PLATFORM === 'cordova') {
+            var connection = getNetworkAPI();
+            return (connection.type !== 'none');
+        } else {
+            return navigator.onLine;
+        }
+    },
+
+    /**
+     * Return the connection type
+     *
+     * @return {String}
+     */
+    getConnectionType: function() {
         var connection = getNetworkAPI();
         if (process.env.PLATFORM === 'cordova') {
-            return {
-                online: connection.type !== 'none',
-                type: connection.type,
-            };
+            return connection.type;
         } else {
-            return {
-                online: navigator.onLine,
-                type: (connection) ? connection.effectiveType : undefined,
-            };
+            return (connection) ? connection.effectiveType : 'unknown';
         }
     },
 
@@ -47,8 +72,64 @@ module.exports = React.createClass({
                 connection.addEventListener('typechange', this.handleConnectionTypeChange);
             }
         }
+        if (navigator.getBattery) {
+            navigator.getBattery().then((battery) => {
+                battery.addEventListener('levelchange', this.handleBatteryChange);
+                battery.addEventListener('chargingchange', this.handleBatteryChange);
+                this.setState({
+                    battery: _.pick(battery, 'charging', 'level')
+                });
+            });
+        }
     },
 
+    /**
+     * Handle Android quirk
+     *
+     * @param  {Object} nextProps
+     */
+    componentWillReceiveProps: function(nextProps) {
+        if (this.props.inForeground !== nextProps.inForeground) {
+            if (isActuallyAndroid()) {
+                // on Android, we can lose connectivity after running in the
+                // background for a while when the device is in battery saving
+                // mode
+                if (nextProps.inForeground) {
+                    clearTimeout(this.offlineTimeout);
+                    var online = this.isOnline();
+                    if (!this.state.online && online) {
+                        this.setState({ online: true }, () => {
+                            this.triggerChangeEvent(this.state.online, this.state.type);
+                        });
+                    }
+                } else {
+                    this.offlineTimeout = setTimeout(() => {
+                        if (this.state.online) {
+                            if (this.state.battery && this.state.battery.level < 0.2) {
+                                this.setState({ online: false }, () => {
+                                    this.triggerChangeEvent(this.state.online, this.state.type);
+                                });
+                            }
+                        }
+                    }, 30 * 1000);
+                }
+            }
+
+            if (nextProps.inForeground) {
+                // check connectivity on resume
+                var online = this.isOnline();
+                if (this.state.online !== online) {
+                    this.setState({ online }, () => {
+                        this.triggerChangeEvent(true, type);
+                    });
+                }
+            }
+        }
+    },
+
+    /**
+     * Trigger event on mount
+     */
     componentDidMount: function() {
         this.triggerChangeEvent(this.state.online, this.state.type);
     },
@@ -69,6 +150,12 @@ module.exports = React.createClass({
             if (connection) {
                 connection.removeEventListener('typechange', this.handleConnectionTypeChange);
             }
+        }
+        if (navigator.getBattery) {
+            navigator.getBattery().then((battery) => {
+                battery.removeEventListener('levelchange', this.handleBatteryChange);
+                battery.removeEventListener('chargingchange', this.handleBatteryChange);
+            });
         }
     },
 
@@ -95,8 +182,9 @@ module.exports = React.createClass({
      * @param  {Event} evt
      */
     handleBrowserOffline: function(evt) {
-        this.setState({ online: false });
-        this.triggerChangeEvent(false, this.state.type);
+        this.setState({ online: false }, () => {
+            this.triggerChangeEvent(false, this.state.type);
+        });
     },
 
     /**
@@ -105,14 +193,10 @@ module.exports = React.createClass({
      * @param  {Event} evt
      */
     handleBrowserOnline: function(evt) {
-        if (process.env.PLATFORM === 'cordova') {
-            var connection = getNetworkAPI();
-            this.setState({ online: true, type: connection.type });
-            this.triggerChangeEvent(true, connection.type);
-        } else {
-            this.setState({ online: true });
-            this.triggerChangeEvent(true, this.state.type);
-        }
+        var type = this.getConnectionType();
+        this.setState({ online: true, type }, () => {
+            this.triggerChangeEvent(true, type);
+        });
     },
 
     /**
@@ -121,10 +205,20 @@ module.exports = React.createClass({
      * @param  {Event} evt
      */
     handleConnectionTypeChange: function(evt) {
-        if (process.env.PLATFORM !== 'browser') return;
-        var type = evt.target.effectiveType;
+        var type = this.getConnectionType();
         this.setState({ type });
         this.triggerChangeEvent(this.state.online, type);
+    },
+
+    /**
+     * Called when battery status changes
+     *
+     * @param  {Event} evt
+     */
+    handleBatteryChange: function(evt) {
+        this.setState({
+            battery: _.pick(evt.target, 'charging', 'level')
+        });
     },
 
     /**
@@ -146,4 +240,14 @@ module.exports = React.createClass({
 
 function getNetworkAPI() {
     return navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+}
+
+function isActuallyAndroid() {
+    var ua = navigator.userAgent;
+    if (/Android/.test(ua)) {
+        if (!/Edge/.test(ua)) {
+            return true;
+        }
+    }
+    return false;
 }

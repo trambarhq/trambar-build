@@ -145,9 +145,6 @@ function sendStaticFile(res, path, cc, filename) {
 function sendError(res, err) {
     var statusCode = err.statusCode;
     var message = err.message;
-    if (process.env.NODE_ENV !== 'production') {
-        console.error('sendError', err);
-    }
     if (!statusCode) {
         // not an expected error
         statusCode = 500;
@@ -290,7 +287,7 @@ function handleImageUpload(req, res) {
     var schema = req.params.schema;
     var token = req.query.token;
     var file = req.file;
-    var url = req.body.external_url;
+    var url = req.body.url;
     return checkTaskToken(schema, token, 'add-image').then((taskId) => {
         return FileManager.preserveFile(file, url, CacheFolders.image).then((imagePath) => {
             if (!imagePath) {
@@ -325,7 +322,7 @@ function handleImageUpload(req, res) {
  */
 function handleImageImport(req, res) {
     var file = req.file;
-    var url = req.body.external_url;
+    var url = req.body.url;
     return FileManager.preserveFile(file, url, CacheFolders.image).then((imagePath) => {
         if (!imagePath) {
             throw new HTTPError(400);
@@ -398,7 +395,7 @@ function handleMediaUpload(req, res, type) {
     var token = req.query.token;
     var streamId = req.body.stream;
     var file = req.file;
-    var url = req.body.external_url;
+    var url = req.body.url;
     return checkTaskToken(schema, token, `add-${type}`).then((taskId) => {
         if (streamId) {
             // handle streaming upload--transcoding job has been created already
@@ -415,21 +412,24 @@ function handleMediaUpload(req, res, type) {
                 if (!mediaPath) {
                     throw new HTTPError(400);
                 }
+                var url = getFileURL(mediaPath);
                 // create the transcoding job, checking if it exists already on
                 // the off-chance the same file is uploaded twice at the same time
                 var jobId = Path.basename(mediaPath);
-                if (!VideoManager.findTranscodingJob(jobId)) {
-                    return VideoManager.startTranscodingJob(mediaPath, type, jobId).then((job) => {
-                        if (req.body.generate_poster) {
-                            return VideoManager.requestPosterGeneration(job).then(() => {
-                                monitorTranscodingJob(schema, taskId, job);
-                            });
-                        } else {
-                            monitorTranscodingJob(schema, taskId, job);
-                        }
-                        return {};
-                    });
+                if (VideoManager.findTranscodingJob(jobId)) {
+                    return { url };
                 }
+                return VideoManager.startTranscodingJob(mediaPath, type, jobId).then((job) => {
+                    if (req.body.generate_poster) {
+                        return VideoManager.requestPosterGeneration(job).then(() => {
+                            monitorTranscodingJob(schema, taskId, job);
+                            return { url };
+                        });
+                    } else {
+                        monitorTranscodingJob(schema, taskId, job);
+                        return { url };
+                    }
+                });
             });
         }
     }).then((results) => {
@@ -467,6 +467,9 @@ function monitorTranscodingJob(schema, taskId, job) {
 
     // wait for transcoding to finish
     VideoManager.awaitTranscodingJob(job).then(() => {
+        if (job.aborted) {
+            return;
+        }
         // save URL and information about available version to task object
         // (doing so transfer these properties into details.resources of
         // object that has the Task object's token as payload_token)
@@ -507,7 +510,7 @@ function handleMediaPoster(req, res, type) {
     var token = req.query.token;
     var streamId = req.body.stream;
     var file = req.file;
-    var url = req.body.external_url;
+    var url = req.body.url;
     return checkTaskToken(schema, token, `add-${type}`).then((taskId) => {
         return FileManager.preserveFile(file, url, CacheFolders.image).then((imagePath) => {
             if (!imagePath) {
@@ -540,6 +543,7 @@ function handleMediaPoster(req, res, type) {
 function handleStream(req, res) {
     var jobId = req.query.id;
     var file = req.file;
+    var abort = !!req.body.abort;
     var chunk = parseInt(req.body.chunk);
     return Promise.try(() => {
         var job = VideoManager.findTranscodingJob(jobId);
@@ -573,7 +577,7 @@ function handleStream(req, res) {
         if (file) {
             VideoManager.transcodeSegment(job, file);
         } else {
-            VideoManager.endTranscodingJob(job);
+            VideoManager.endTranscodingJob(job, abort);
         }
         return null;
     }).then(() => {

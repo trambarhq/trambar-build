@@ -8,13 +8,12 @@ module.exports = React.createClass({
     displayName: 'SmartList',
     propTypes: {
         items: PropTypes.arrayOf(PropTypes.object),
-        fresh: PropTypes.bool,
         behind: PropTypes.number,
         ahead: PropTypes.number,
         anchor: PropTypes.string,
         offset: PropTypes.number,
         inverted: PropTypes.bool,
-        loadDuration: PropTypes.number,
+        transitioning: PropTypes.number,
 
         onIdentity: PropTypes.func.isRequired,
         onTransition: PropTypes.func,
@@ -30,12 +29,11 @@ module.exports = React.createClass({
      */
     getDefaultProps: function() {
         return {
-            fresh: false,
             behind: 5,
             ahead: 10,
             offset: 0,
             inverted: false,
-            loadDuration: 2000,
+            transitioning: 5,
         };
     },
 
@@ -45,7 +43,7 @@ module.exports = React.createClass({
      * @return {Object}
      */
     getInitialState: function() {
-        var nextState = { startTime: new Date };
+        var nextState = {};
         this.updateAnchor(this.props, nextState);
         this.updateSlots(this.props, nextState);
         return nextState;
@@ -65,10 +63,6 @@ module.exports = React.createClass({
      */
     componentWillReceiveProps: function(nextProps) {
         var nextState = _.clone(this.state);
-        if (nextProps.fresh) {
-            nextState.startTime = new Date;
-            nextState.estimatedHeight = undefined;
-        }
         if (this.props.anchor !== nextProps.anchor) {
             this.updateAnchor(nextProps, nextState);
         }
@@ -88,14 +82,9 @@ module.exports = React.createClass({
      * @param  {Object} nextState
      */
     updateAnchor: function(nextProps, nextState) {
-        nextState.currentAnchor = nextProps.anchor;
-        this.anchorOffset = nextProps.offset;
-        if (this.state) {
-            if (this.state.currentAnchor && !nextState.currentAnchor) {
-                if (this.scrollContainer) {
-                    this.scrollContainer.scrollTop = 0;
-                }
-            }
+        if (nextState.currentAnchor !== nextProps.anchor) {
+            nextState.currentAnchor = nextProps.anchor;
+            this.anchorOffset = nextProps.offset;
         }
     },
 
@@ -130,13 +119,11 @@ module.exports = React.createClass({
         // consider items that appear within a certain time to be part
         // of the initial load; don't transition them in and don't
         // trigger onBeforeAnchor on them
-        var now = new Date;
-        var elapsed = now - nextState.startTime;
-        var useTransition = (elapsed < this.props.loadDuration) ? false : true;
         var slots = _.slice(nextState.slots);
         var slotHash = _.transform(slots, (hash, slot) => {
             hash[slot.id] = slot;
         }, {});
+        var useTransition = !_.isEmpty(slots);
         var isPresent = {};
         _.each(items, (item, index) => {
             // look for existing slot
@@ -158,7 +145,6 @@ module.exports = React.createClass({
                 slot.index = index;
                 if (slot.state === 'disappearing') {
                     slot.state = 'present';
-                    slot.removed = null;
                 }
             } else {
                 // parent component might choose to not transition in item
@@ -166,28 +152,47 @@ module.exports = React.createClass({
                 if (useTransition && transition(item, index)) {
                     state = 'appearing';
                 }
-                slot = this.createSlot(id, item, index, state, now);
+                slot = this.createSlot(id, item, index, state);
                 slots.push(slot);
             }
             isPresent[id] = true;
         });
 
         // see which slots are disappearing
-        var oldSlots = [];
         _.each(slots, (slot) => {
             if (!isPresent[slot.id]) {
                 if (useTransition && this.isSlotVisible(slot)) {
                     // use transition animation
                     slot.state = 'disappearing';
-                    slot.removed = now;
                 } else {
                     // don't bother
-                    oldSlots.push(slot);
+                    slot.state = 'gone';
                 }
             }
         });
-        _.pullAll(slots, oldSlots);
 
+        // limit the number of transitioning elements
+        var appearing = 0;
+        var disappearing = 0;
+        var limit = this.props.transitioning;
+        _.each(slots, (slot) => {
+            if (slot.state === 'appearing') {
+                if (appearing < limit) {
+                    appearing++;
+                } else {
+                    slot.state = 'present';
+                }
+            } else if (slot.state === 'disappearing') {
+                if (disappearing < limit) {
+                    disappearing++;
+                } else {
+                    slot.state = 'gone';
+                }
+            }
+        });
+
+        // take out slots that are no longer used
+        var oldSlots = _.remove(slots, { state: 'gone' });
         if (_.some(oldSlots, { unseen: true })) {
             // items were deleted before the user has a chance to see them
             var unseenSlots = _.filter(slots, { unseen: true });
@@ -195,21 +200,6 @@ module.exports = React.createClass({
         }
 
         nextState.slots = _.sortBy(slots, 'index');
-
-        if (nextProps.fresh) {
-            // reset the anchor
-            nextState.currentAnchor = nextProps.anchor;
-            this.anchorOffset = nextProps.offset;
-
-            if (!nextProps.anchor) {
-                if (this.scrollContainer) {
-                    // make sure we're at the top when rendering a branch new list
-                    if (this.scrollContainer.scrollTop > 0) {
-                        this.scrollContainer.scrollTop = 0;
-                    }
-                }
-            }
-        }
     },
 
     /**
@@ -219,19 +209,16 @@ module.exports = React.createClass({
      * @param  {Object} item
      * @param  {Number} index
      * @param  {String} state
-     * @param  {Date} time
      *
      * @return {Object}
      */
-    createSlot: function(id, item, index, state, time) {
+    createSlot: function(id, item, index, state) {
         var slot = {
             id: id,
             key: id,
             index: index,
             state: state,
             item: item,
-            created: time,
-            removed: null,
             transition: false,
             rendering: undefined,
             contents: null,
@@ -487,13 +474,10 @@ module.exports = React.createClass({
                     }
                 }
             } else if (slot.unseen) {
-                if (slot.rendering) {
-                    // if we're rendering the item and it's ahead of the anchor
-                    // consider it seen
-                    if (index >= anchorSlotIndex) {
-                        slot.unseen = false;
-                        changed = true;
-                    }
+                // if it's ahead of the anchor consider it seen
+                if (index >= anchorSlotIndex) {
+                    slot.unseen = false;
+                    changed = true;
                 }
             }
         });

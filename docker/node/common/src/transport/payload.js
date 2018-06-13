@@ -4,9 +4,11 @@ var Moment = require('moment');
 var BlobStream = require('transport/blob-stream');
 var BlobManager = require('transport/blob-manager');
 var HTTPRequest = require('transport/http-request');
+var BackgroundFileTransfer = require('transport/background-file-transfer');
 var HTTPError = require('errors/http-error');
 var FileError = require('errors/file-error');
 var RandomToken = require('utils/random-token');
+var Async = require('async-do-while');
 
 if (process.env.PLATFORM === 'cordova') {
     var CordovaFile = require('transport/cordova-file');
@@ -30,6 +32,7 @@ function Payload(address, schema, type, token) {
     this.started = !!token;
     this.sent = false;
     this.failed = false;
+    this.canceled = false;
     this.completed = false;
     this.uploadStartTime = null;
     this.uploadEndTime = null;
@@ -125,6 +128,9 @@ Payload.prototype.attachStream = function(stream, name) {
  * @return {Payload}
  */
 Payload.prototype.attachURL = function(url, name) {
+    if (!name) {
+        name = 'main';
+    }
     this.parts.push({ url, name });
     return this;
 };
@@ -185,7 +191,29 @@ Payload.prototype.send = function() {
     this.started = true;
     this.uploadStartTime = Moment().toISOString();
     Promise.each(this.parts, (part) => {
-        return this.sendPart(part);
+        var sent = false;
+        var attempts = 1;
+        var delay = 1000;
+        Async.do(() => {
+            return this.sendPart(part).then(() => {
+                sent = true;
+            }).catch((err) => {
+                if (err.statusCode >= 400 && err.statusCode <= 499) {
+                    throw err;
+                }
+                // wait a bit then try again
+                delay = Math.min(delay * 2, 10 * 1000);
+                return Promise.delay(delay).then(() => {
+                    if (!this.canceled) {
+                        attempts++;
+                    }
+                });
+            });
+        });
+        Async.while(() => {
+            return !sent && !this.canceled;
+        });
+        return Async.end();
     }).then(() => {
         this.sent = true;
         this.uploadEndTime = Moment().toISOString();
@@ -240,7 +268,9 @@ Payload.prototype.sendBlob = function(part) {
             this.updateProgress(part, evt.loaded / evt.total)
         },
     };
-    return HTTPRequest.fetch('POST', url, formData, options).then((res) => {
+    part.uploaded = 0;
+    part.promise = HTTPRequest.fetch('POST', url, formData, options);
+    return part.promise.then((res) => {
         this.associateRemoteURL(res.url, blob);
         return res;
     });
@@ -258,26 +288,30 @@ Payload.prototype.sendCordovaFile = function(part) {
     var url = this.getDestinationURL(part.name);
     var file = part.cordovaFile;
     return new Promise((resolve, reject) => {
-        var encodedURL = encodeURI(url);
-        var fileTransfer = new FileTransfer;
-        fileTransfer.onprogress = (evt) => {
-            this.updateProgress(part, evt.loaded / evt.total)
+        var index = _.indexOf(this.parts, part);
+        var token = `${this.token}-${index + 1}`;
+        var options ={
+            onSuccess: (upload) => {
+                resolve(upload.serverResponse);
+            },
+            onError: (err) => {
+                reject(err);
+            },
+            onProgress: (upload) => {
+                this.updateProgress(part, upload.progress / 100);
+            },
         };
-        var successCB = (res) => {
-            resolve(res);
-        };
-        var errorCB = (err) => {
-            reject(new FileError(err))
-        };
-        var fileUploadOptions = _.assign(new FileUploadOptions, {
-            fileKey: 'file',
-            fileName: file.name,
-            params: part.options,
-            mimeType: file.type,
-        });
-        fileTransfer.upload(file.fullPath, encodedURL, successCB, errorCB, fileUploadOptions);
-    }).then((res) => {
-        this.associateRemoteURL(res.url, file);
+
+        BackgroundFileTransfer.send(token, file.fullPath, url, options);
+        part.uploaded = 0;
+    }).then((text) => {
+        var res;
+        try {
+            res = JSON.parse(text);
+            this.associateRemoteURL(res.url, file);
+        } catch(err) {
+            res = {};
+        }
         return res;
     });
 };
@@ -319,7 +353,110 @@ Payload.prototype.sendURL = function(part) {
         contentType: 'json',
     };
     var body = _.extend({ url: part.url }, part.options);
-    return HTTPRequest.fetch('POST', url, body, options);
+    part.promise = HTTPRequest.fetch('POST', url, body, options);
+    return part.promise;
+};
+
+/**
+ * Cancel the payload
+ */
+Payload.prototype.cancel = function() {
+    if (this.started) {
+        if (!this.completed) {
+            if (!this.failed && !this.canceled) {
+                this.canceled = true;
+                return Promise.each(this.parts, (part) => {
+                    return this.cancelPart(part);
+                }).then(() => {
+                    return true;
+                });
+            }
+        }
+    }
+    return Promise.resolve(false);
+};
+
+/**
+ * Cancel a part of the payload
+ *
+ * @param  {Object} part
+ *
+ * @return {Promise}
+ */
+Payload.prototype.cancelPart = function(part) {
+    if (part.stream) {
+        return this.cancelStream(part);
+    } else if (part.blob) {
+        return this.cancelBlob(part);
+    } else if (part.cordovaFile && process.env.PLATFORM === 'cordova') {
+        return this.cancelCordovaFile(part);
+    } else if (part.url) {
+        return this.cancelURL(part);
+    } else {
+        return Promise.resolve();
+    }
+};
+
+/**
+ * Cancel stream upload
+ *
+ * @param  {Object} part
+ *
+ * @return {Promise}
+ */
+Payload.prototype.cancelStream = function(part) {
+    return Promise.try(() => {
+        return part.stream.cancel();
+    }).catch((err) => {
+    });
+};
+
+/**
+ * Cancel file upload
+ *
+ * @param  {Object} part
+ *
+ * @return {Promise}
+ */
+Payload.prototype.cancelBlob = function(part) {
+    return Promise.try(() => {
+        if (part.promise && part.promise.isPending()) {
+            return part.promise.cancel();
+        }
+    }).catch((err) => {
+    });
+};
+
+/**
+ * Cancel file upload
+ *
+ * @param  {Object} part
+ *
+ * @return {Promise}
+ */
+Payload.prototype.cancelCordovaFile = function(part) {
+    return Promise.try(() => {
+        var index = _.indexOf(this.parts, part);
+        var token = `${this.token}-${index + 1}`;
+        return BackgroundFileTransfer.cancel(token);
+    }).catch((err) => {
+    });
+};
+
+/**
+ * Cancel sending of URL
+ *
+ * @param  {Object} part
+ *
+ * @return {Promise}
+ */
+Payload.prototype.cancelURL = function(part) {
+    return Promise.try(() => {
+        if (part.promise && part.promise.isPending()) {
+            return part.promise.cancel();
+        }
+    }).catch((err) => {
+    });
 };
 
 /**

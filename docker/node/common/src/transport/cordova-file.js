@@ -36,8 +36,8 @@ CordovaFile.prototype.getFileEntry = function() {
         resolveLocalFileSystemURL(this.fullPath, (fileEntry) => {
             this.fileEntry = fileEntry;
             resolve(fileEntry);
-        }, (err) => {
-            reject(new FileError(err));
+        }, (errNo) => {
+            reject(new FileError(errNo));
         });
     });
 };
@@ -50,9 +50,11 @@ CordovaFile.prototype.getFile = function() {
         return new Promise((resolve, reject) => {
             fileEntry.file((file) => {
                 this.file = file;
+                this.size = file.size;
+                this.type = decodeFileType(file.type);
                 resolve(file);
-            }, (err) => {
-                reject(new FileError(err));
+            }, (errNo) => {
+                reject(new FileError(errNo));
             });
         });
     });
@@ -83,8 +85,38 @@ CordovaFile.prototype.getArrayBuffer = function() {
  * @return {Promise}
  */
 CordovaFile.prototype.obtainMetadata = function() {
-    return this.getFile().then((file) => {
-        this.size = file.size;
-        this.type = file.type;
-    });
+    return this.getFile().return();
 };
+
+/**
+ * Remove the file
+ *
+ * @return {Promise}
+ */
+CordovaFile.prototype.remove = function() {
+    return this.getFileEntry().then((fileEntry) => {
+        return new Promise((resolve, reject) => {
+            fileEntry.remove(() => {
+                resolve();
+            }, (errNo) => {
+                reject(new FileError(errNo));
+            });
+        });
+    })
+};
+
+function decodeFileType(type) {
+    // on Windows we'll get a file extension instead of a mime type
+    if (type && type.charAt(0) === '.') {
+        switch (_.toLower(type)) {
+            case '.jpg':
+            case '.jpeg': return 'image/jpeg';
+            case '.png': return 'image/png';
+            case '.gif': return 'image/gif';
+            case '.mp4': return 'video/mp4';
+            case '.mp3': return 'audio/mp3';
+            default: return 'application/octet-stream';
+        }
+    }
+    return type;
+}

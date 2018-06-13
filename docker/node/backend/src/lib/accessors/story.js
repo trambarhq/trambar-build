@@ -122,9 +122,9 @@ module.exports = _.create(ExternalData, {
      */
     watch: function(db, schema) {
         return this.createChangeTrigger(db, schema).then(() => {
-            var propNames = [ 'deleted', 'type', 'tags', 'unfinished_tasks', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'ptime', 'external', 'mtime', 'itime', 'etime' ];
+            var propNames = [ 'deleted', 'type', 'tags', 'unfinished_tasks', 'language_codes', 'user_ids', 'role_ids', 'published', 'ready', 'public', 'external', 'ptime', 'btime', 'mtime', 'itime', 'etime' ];
             return this.createNotificationTriggers(db, schema, propNames).then(() => {
-                return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'published' ]).then(() => {
+                return this.createResourceCoalescenceTrigger(db, schema, [ 'ready', 'ptime' ]).then(() => {
                     var Task = require('accessors/task');
                     return Task.createUpdateTrigger(db, schema, 'updateStory', 'updateResource', [ this.table ]).then(() => {});
                 });
@@ -237,6 +237,17 @@ module.exports = _.create(ExternalData, {
                 query.conditions = [ condition ];
             }
         });
+    },
+
+    /**
+     * Return SQL expression that yield searchable text
+     *
+     * @param  {String} languageCode
+     *
+     * @return {String}
+     */
+    getSearchableText: function(languageCode) {
+        return `"extractStoryText"(type, details, external, '${languageCode}')`;
     },
 
     /**

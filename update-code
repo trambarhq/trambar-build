@@ -10,7 +10,6 @@ var wf = 'codebase';
 
 var part = process.argv[2] || 'all';
 
-
 // update or create working folder
 Shell.chdir(__dirname);
 var branch = Git.getCurrentBranch();
@@ -50,6 +49,13 @@ if (part === 'client' || part === 'all') {
     // copy files into Docker folder for Nginx image
     Folder.copy(`${wf}/client/www`, 'docker/nginx/client');
     // copy files into Cordova folder
+    Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');
+} else if (part === 'cordova') {
+    Folder.create(`${wf}/client/www-cordova`);
+    Shell.chdir(`${wf}/client`);
+    Shell.run('npm install');
+    Shell.run('npm run build cordova');
+    Shell.chdir(__dirname);
     Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');
 }
 

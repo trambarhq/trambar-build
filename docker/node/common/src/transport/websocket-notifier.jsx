@@ -3,6 +3,7 @@ var Promise = require('bluebird');
 var React = require('react'), PropTypes = React.PropTypes;
 var SockJS = require('sockjs-client');
 var Async = require('async-do-while');
+var NotificationUnpacker = require('transport/notification-unpacker');
 
 var Locale = require('locale/locale');
 
@@ -18,7 +19,7 @@ module.exports = React.createClass({
         initialReconnectionDelay: PropTypes.number,
         maximumReconnectionDelay: PropTypes.number,
         defaultProfileImage: PropTypes.string,
-        hasConnection: PropTypes.bool,
+        online: PropTypes.bool,
 
         locale: PropTypes.instanceOf(Locale),
 
@@ -42,7 +43,7 @@ module.exports = React.createClass({
     getDefaultProps: function() {
         return {
             basePath: '/srv/socket',
-            hasConnection: true,
+            online: true,
             initialReconnectionDelay: 500,
             maximumReconnectionDelay: 30000,
         };
@@ -57,7 +58,6 @@ module.exports = React.createClass({
         return {
             socket: null,
             notificationPermitted: false,
-            serverResponse: null,
             reconnectionCount: 0,
             recentMessages: [],
         };
@@ -85,41 +85,14 @@ module.exports = React.createClass({
         if (this.props.serverAddress !== nextProps.serverAddress) {
              this.updateConnection(nextProps);
         }
-        if (!this.props.hasConnection && nextProps.hasConnection) {
+        if (!this.props.online && nextProps.online) {
             if (this.onConnectivity) {
                 this.onConnectivity();
             }
-        } else if(this.props.hasConnection && !nextProps.hasConnection) {
+        } else if(this.props.online && !nextProps.online) {
             if (this.state.socket) {
                 // putting Chrome into offline mode does not automatically
                 // break the WebSocket connection--do it manually
-                this.state.socket.close();
-            }
-        }
-    },
-
-    /**
-     * Use an interval function to monitor web-socket connection
-     */
-    componentDidMount: function() {
-        this.heartbeatInterval = setInterval(this.checkHeartbeat, 10 * 1000);
-    },
-
-    /**
-     * Remove interval function on unmount
-     */
-    componentWillUnmount: function() {
-        clearInterval(this.heartbeatInterval);
-    },
-
-    /**
-     * Close the socket if it's been quiet for too long
-     */
-    checkHeartbeat: function() {
-        if (this.state.socket) {
-            var now = new Date;
-            var elapsed = now - this.lastInteractionTime;
-            if (elapsed > 60 * 1000) {
                 this.state.socket.close();
             }
         }
@@ -138,12 +111,12 @@ module.exports = React.createClass({
     },
 
     /**
-     * Wait for props.hasConnection to become true
+     * Wait for props.online to become true
      *
      * @return {Promise}
      */
     waitForConnectivity: function() {
-        if (this.props.hasConnection) {
+        if (this.props.online) {
             return Promise.resolve();
         } else {
             if (!this.connectivityPromise) {
@@ -187,31 +160,21 @@ module.exports = React.createClass({
         Async.do(() => {
             return this.createSocket(serverAddress).then((socket) => {
                 if (attempt === this.connectionAttempt) {
-                    this.lastInteractionTime = new Date;
                     socket.onmessage = (evt) => {
                         if (this.state.socket === socket) {
-                            var object = parseJSON(evt.data);
-                            if (object.changes) {
-                                this.triggerNotifyEvent(serverAddress, object.changes);
-                            } else if (object.alert) {
-                                this.showAlert(serverAddress, object.alert);
-                            } else if (object.socket) {
-                                var connection = {
-                                    method: 'websocket',
-                                    relay: null,
-                                    token: object.socket,
-                                    address: serverAddress,
-                                    details: {
-                                        user_agent: navigator.userAgent
-                                    },
-                                };
-                                this.setState({ serverResponse: object });
-                                this.triggerConnectEvent(connection);
+                            var msg = parseJSON(evt.data);
+                            var payload = _.assign({ address: serverAddress }, msg);
+                            var notification = NotificationUnpacker.unpack(payload);
+                            if (notification.type === 'change') {
+                                this.triggerNotifyEvent(notification.changes);
+                            } else if (notification.type === 'alert') {
+                                this.showAlert(notification.alert);
+                            } else if (notification.type === 'connection') {
+                                socket.id = notification.connection.token;
+                                this.triggerConnectEvent(notification.connection);
                             }
-                            this.lastInteractionTime = new Date;
-
                             var recentMessages = _.slice(this.state.recentMessages);
-                            recentMessages.unshift(object);
+                            recentMessages.unshift(msg);
                             if (recentMessages.length > 10) {
                                recentMessages.splice(10);
                             }
@@ -222,8 +185,7 @@ module.exports = React.createClass({
                         if (this.state.socket === socket) {
                             // we're still supposed to be connected
                             // try to reestablish connection
-                            this.setState({ socket: null, serverResponse: null }, () => {
-                                console.log('Reestablishing web-socket connection...');
+                            this.setState({ socket: null }, () => {
                                 this.connect(serverAddress).then((connected) => {
                                     if (connected) {
                                         var reconnectionCount = this.state.reconnectionCount + 1;
@@ -232,12 +194,10 @@ module.exports = React.createClass({
                                     }
                                 });
                             });
-                        } else {
-                            this.setState({ socket: null, serverResponse: null, reconnectionCount: 0 });
-                        }
-                        if (this.props.serverAddress === serverAddress) {
-                            console.log('disconnect');
-                            this.triggerDisconnectEvent();
+                            if (this.props.serverAddress === serverAddress) {
+                                console.log('Disconnect');
+                                this.triggerDisconnectEvent();
+                            }
                         }
                     };
                     this.setState({ socket });
@@ -274,7 +234,7 @@ module.exports = React.createClass({
         var socket = this.state.socket;
         if (socket) {
             // set state.socket to null first, to stop reconnection attempt
-            this.setState({ socket: null, serverResponse: null, reconnectionCount: 0 }, () => {
+            this.setState({ socket: null, reconnectionCount: 0 }, () => {
                 socket.close();
             });
         }
@@ -320,14 +280,13 @@ module.exports = React.createClass({
      * Notify parent component that a change event was received
      *
      * @param  {String} address
-     * @param  {Object} changes
+     * @param  {Array<Object>} changes
      */
-    triggerNotifyEvent: function(address, changes) {
+    triggerNotifyEvent: function(changes) {
         if (this.props.onNotify) {
             this.props.onNotify({
                 type: 'notify',
                 target: this,
-                address,
                 changes,
             });
         }
@@ -363,15 +322,13 @@ module.exports = React.createClass({
     /**
      * Inform parent component that an alert was clicked
      *
-     * @param  {String} address
      * @param  {Object} alert
      */
-    triggerAlertClickEvent: function(address, alert) {
+    triggerAlertClickEvent: function(alert) {
         if (this.props.onAlertClick) {
             this.props.onAlertClick({
                 type: 'alertclick',
                 target: this,
-                address,
                 alert,
             })
         }
@@ -380,14 +337,13 @@ module.exports = React.createClass({
     /**
      * Display an alert popup
      *
-     * @param  {String} serverAddress
      * @param  {Object} alert
      */
-    showAlert: function(serverAddress, alert) {
+    showAlert: function(alert) {
         if (this.state.notificationPermitted) {
             var options = {};
             if (alert.profile_image) {
-                options.icon = `${serverAddress}${alert.profile_image}`;
+                options.icon = alert.profile_image;
             } else {
                 options.icon = this.props.defaultProfileImage;
             }
@@ -395,12 +351,12 @@ module.exports = React.createClass({
                 options.body = alert.message;
             } else if (alert.attached_image) {
                 // show attach image only if there's no text
-                options.image = `${serverAddress}${alert.attached_image}`;
+                options.image = alert.attached_image;
             }
             options.lang = _.get(this.props.locale, 'languageCode');
             var notification = new Notification(alert.title, options);
             notification.addEventListener('click', () => {
-                this.triggerAlertClickEvent(serverAddress, alert);
+                this.triggerAlertClickEvent(alert);
                 notification.close();
             });
         }
@@ -412,7 +368,7 @@ module.exports = React.createClass({
      * @return {ReactElement}
      */
     render: function() {
-        var id = _.get(this.state.serverResponse, 'socket');
+        var id = _.get(this.state.socket, 'id');
         return (
             <Diagnostics type="websocket-notifier">
                 <DiagnosticsSection label="Connection">
@@ -429,13 +385,6 @@ module.exports = React.createClass({
     },
 });
 
-function parseJSON(text) {
-    try {
-        return JSON.parse(text);
-    } catch (err) {
-    }
-}
-
 function requestNotificationPermission() {
     return new Promise((resolve, reject) => {
         Notification.requestPermission((status) => {
@@ -450,4 +399,12 @@ function requestNotificationPermission() {
 
 function renderJSON(object, i) {
     return <pre key={i}>{JSON.stringify(object, undefined, 4)}</pre>;
+}
+
+function parseJSON(text) {
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        return {};
+    }
 }

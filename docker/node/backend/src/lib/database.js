@@ -53,18 +53,59 @@ var config = {
 };
 
 var pool = new PgPool(config);
+var poolCheckPromise = null;
+pool.on('error', (err) => {
+    console.error(err.message);
+    if (poolCheckPromise && !poolCheckPromise.isPending()) {
+        poolCheckPromise = null;
+    }
+});
+
+function testConnection(client) {
+    var sql = 'SELECT 1';
+    return Promise.resolve(client.query(sql)).return();
+}
+
+function checkConnectionPool() {
+    if (!poolCheckPromise) {
+        Async.while(() => {
+            return testConnection(pool).then(() => {
+                return false;
+            }).catch((err) => {
+                return true;
+            });
+        });
+        Async.do(() => {
+            return Promise.delay(1000);
+        });
+        poolCheckPromise = Async.end();
+    }
+    return poolCheckPromise;
+}
 
 function Database(client) {
     this.client = client;
+    this.reconnectionPromise = null;
+    this.listeners = [];
+
+    if (client !== pool) {
+        client.on('error', (err) => {
+            this.reconnect().then(() => {
+                // reattach listeners
+                return Promise.each(this.listeners, (listener) => {
+                    return this.attachListener(listener);
+                });
+            }).then(() => {
+                console.log('Reconnected');
+            });
+        });
+    }
 }
 
 Database.open = function(exclusive) {
     if (exclusive) {
         var db;
-        var attempt;
-        Async.begin(() => {
-            attempt = 1;
-        });
+        var attempt = 1;
         Async.while(() => {
             return Promise.resolve(pool.connect()).then((client) => {
                 // done--break out of loop
@@ -77,7 +118,7 @@ Database.open = function(exclusive) {
                 } else {
                     throw err;
                 }
-            })
+            });
         });
         Async.do(() => {
             // wait a second
@@ -89,9 +130,41 @@ Database.open = function(exclusive) {
         return Async.end();
     } else {
         // run database queries through the pool
-        var db = new Database(pool);
-        return Promise.resolve(db);
+        return checkConnectionPool().then(() => {
+            return new Database(pool);
+        });
     }
+};
+
+Database.prototype.reconnect = function() {
+    if (this.client === pool) {
+        return Promise.delay(1000).then(() => {
+            return checkConnectionPool();
+        });
+    }
+    this.close();
+    if (!this.reconnectionPromise) {
+        Async.do(() => {
+            // wait a second
+            return Promise.delay(1000);
+        });
+        Async.while(() => {
+            return Promise.resolve(pool.connect()).then((client) => {
+                return testConnection(pool).then(() => {
+                    this.client = client;
+                    return false;
+                });
+            }).catch((err) => {
+                // try again
+                return true;
+            });
+        });
+        Async.return(() => {
+            this.reconnectionPromise = null;
+        });
+        this.reconnectionPromise = Async.end();
+    }
+    return this.reconnectionPromise;
 };
 
 Database.prototype.close = function() {
@@ -115,6 +188,11 @@ var programmingErrors = {
 
 Database.prototype.execute = function(sql, parameters) {
     if (!this.client) {
+        if (this.reconnectionPromise) {
+            return this.reconnectionPromise.then(() => {
+                return this.execute(sql, parameters);
+            });
+        }
         return Promise.reject(new Error('Connection was closed: ' + sql.substr(0, 20) + '...'));
     }
     // convert promise to Bluebird variety
@@ -132,6 +210,11 @@ Database.prototype.execute = function(sql, parameters) {
                 console.log(parameters);
                 console.log('----------------------------------------');
             }
+        } else if (err.message === 'Connection terminated') {
+            // reconnect and run statement again
+            return this.reconnect().then(() => {
+                return this.execute(sql, parameters);
+            });
         }
         throw err;
     });
@@ -159,23 +242,27 @@ Database.prototype.listen = function(tables, event, callback, delay) {
     if (this.client === pool) {
         throw new Error('Cannot listen to a non-exclusive connection');
     }
-    var cxt = {
+    var listener = {
         queue: [],
         timeout: 0,
+        event: event,
+        tables: tables,
         callback: callback,
         channels: [],
-        delay: delay,
+        delay: delay || 50,
         database: this,
     };
-    if (delay === undefined) {
-        delay = 50;
-    }
+    this.listeners.push(listener);
+    return this.attachListener(listener);
+};
+
+Database.prototype.attachListener = function(listener) {
     this.client.on('notification', (msg) => {
-        processNotification(cxt, msg);
+        processNotification(listener, msg);
     });
-    return Promise.each(tables, (table) => {
-        var channel = `${table}_${event}`;
-        cxt.channels.push(channel);
+    return Promise.each(listener.tables, (table) => {
+        var channel = `${table}_${listener.event}`;
+        listener.channels.push(channel);
         return this.execute(`LISTEN ${channel}`);
     });
 };
@@ -284,7 +371,7 @@ function processNotification(cxt, msg) {
             }
         }
     } catch(err) {
-        console.error(err);
+        console.error(err.message);
     }
 }
 
@@ -309,7 +396,7 @@ function dispatchNotifications(cxt) {
     try {
         cxt.callback.call(cxt.database, events);
     } catch(err) {
-        console.error(err);
+        console.error(err.message);
     }
 }
 

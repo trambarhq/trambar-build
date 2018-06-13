@@ -1,4 +1,5 @@
 var _ = require('lodash');
+var Promise = require('bluebird');
 var Operation = require('data/remote-data-source/operation');
 var SessionStartTime = require('data/session-start-time');
 
@@ -6,35 +7,25 @@ module.exports = Search;
 
 function Search(query) {
     Operation.call(this, query);
-    this.criteria = query.criteria;
+    this.criteria = query.criteria || {};
     this.remote = query.remote || false;
     this.dirty = false;
     this.updating = false;
-    this.background = false;
+    this.scheduled = false;
     this.lastRetrieved = 0;
+    this.missingResults = [];
 
     this.minimum = query.minimum;
     this.expected = query.expected;
     this.prefetch = query.prefetch;
 
-    if (typeof(query.expected) === 'number') {
-        this.expected = query.expected;
-    } else {
+    if (typeof(this.expected) !== 'number') {
         // if expected object count isn't specified, try inferring it from
         // the search criteria
         this.expected = countCriteria(this.criteria, 'id')
                      || countCriteria(this.criteria, 'name')
                      || countCriteria(this.criteria, 'filters')
                      || undefined;
-    }
-    if (typeof(query.minimum) === 'number') {
-        this.minimum = query.minimum;
-    } else {
-        if (this.expected !== undefined) {
-            this.minimum = this.expected;
-        } else {
-            this.minimum = 1;
-        }
     }
 
     // filter out bad values
@@ -133,7 +124,7 @@ Search.prototype.isSufficientlyRecent = function(refreshInterval) {
         return false;
     }
     // use the retrieval time of the oldest object as the search's finish time
-    this.finish = minRetrievalTime;
+    this.finishTime = minRetrievalTime;
     return true;
 }
 
@@ -169,6 +160,9 @@ Search.prototype.isFresh = function(refreshInterval) {
  */
 Search.prototype.isSufficientlyCached = function() {
     var count = this.results.length;
+    if (this.minimum == undefined) {
+        return false;
+    }
     if (count < this.minimum) {
         return false;
     }
@@ -185,6 +179,40 @@ Search.prototype.isSufficientlyCached = function() {
         return false;
     }
     return true;
+};
+
+Search.prototype.finish = function(results) {
+    var previousResults = this.results;
+    var missingResults = [];
+    var newlyRetrieved = 0;
+    Operation.prototype.finish.call(this, results);
+
+    this.dirty = false;
+    if (results) {
+        this.promise = Promise.resolve(this.results);
+
+        // update rtime of results
+        _.each(this.results, (object) => {
+            if (!object.rtime) {
+                newlyRetrieved++;
+            }
+            object.rtime = this.finishTime;
+        });
+
+        // if an object that we found before is no longer there, then
+        // it's either deleted or changed in such a way that it longer
+        // meets the criteria; in both scenarios, the local copy has
+        // become stale and should be removed from cache
+        _.each(previousResults, (object) => {
+            var index = _.sortedIndexBy(results, object, 'id');
+            var target = results[index];
+            if (!target || target.id !== object.id) {
+                missingResults.push(object);
+            }
+        });
+    }
+    this.missingResults = missingResults;
+    this.lastRetrieved = newlyRetrieved;
 };
 
 /**

@@ -101,7 +101,6 @@ function findDraftStories(db, user) {
             published: false,
             user_ids: [ user.id ],
         },
-        prefetch: false
     });
 }
 
@@ -137,7 +136,6 @@ function findUnlistedStories(db, user, listedStories) {
             newer_than: DateTracker.yesterdayISO,
             published: true,
         },
-        prefetch: false
     });
 }
 
@@ -167,7 +165,6 @@ function findStoriesMatchingText(db, text, locale, currentUser, perUserLimit) {
             per_user_limit: perUserLimit,
         },
         remote: true,
-        prefetch: false,
     });
 }
 
@@ -178,10 +175,11 @@ function findStoriesMatchingText(db, text, locale, currentUser, perUserLimit) {
  * @param  {Array<String>} tags
  * @param  {User} currentUser
  * @param  {Number} perUserLimit
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Story>>}
  */
-function findStoriesWithTags(db, tags, currentUser, perUserLimit) {
+function findStoriesWithTags(db, tags, currentUser, perUserLimit, minimum) {
     return db.find({
         table: 'story',
         criteria: {
@@ -192,7 +190,7 @@ function findStoriesWithTags(db, tags, currentUser, perUserLimit) {
             limit: (!perUserLimit) ? 500 : undefined,
             per_user_limit: perUserLimit,
         },
-        minimum: 5,
+        minimum
     });
 }
 
@@ -203,10 +201,11 @@ function findStoriesWithTags(db, tags, currentUser, perUserLimit) {
  * @param  {String} date
  * @param  {User} currentUser
  * @param  {Number} perUserLimit
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Story>>}
  */
-function findStoriesOnDate(db, date, currentUser, perUserLimit) {
+function findStoriesOnDate(db, date, currentUser, perUserLimit, minimum) {
     return db.find({
         table: 'story',
         criteria: {
@@ -217,8 +216,7 @@ function findStoriesOnDate(db, date, currentUser, perUserLimit) {
             limit: (!perUserLimit) ? 500 : undefined,
             per_user_limit: perUserLimit,
         },
-        prefetch: (date >= DateTracker.today),
-        minimum: 5,
+        minimum
     });
 }
 
@@ -228,11 +226,11 @@ function findStoriesOnDate(db, date, currentUser, perUserLimit) {
  * @param  {Database} db
  * @param  {String} type
  * @param  {User} currentUser
- * @param  {Number|undefined} recursion
+ * @param  {Boolean|undefined} blockIfStale
  *
  * @return {Promise<Array<Story>|null>}
  */
-function findStoriesInListing(db, type, currentUser) {
+function findStoriesInListing(db, type, currentUser, blockIfStale) {
     if (!currentUser) {
         return Promise.resolve(Empty.array);
     }
@@ -244,8 +242,12 @@ function findStoriesInListing(db, type, currentUser) {
             filters: {
                 public: publicOnly(currentUser)
             },
-        }
+        },
+        prefetch: true,
     };
+    if (blockIfStale) {
+        query.blocking = 'stale';
+    }
     return db.findOne(query).then((listing) => {
         if (!listing) {
             // shouldn't happen, since listings are created on demand
@@ -291,7 +293,6 @@ function findStoriesByUserMatchingText(db, user, text, locale, currentUser) {
             limit: 100,
         },
         remote: true,
-        prefetch: false,
     });
 }
 
@@ -302,10 +303,11 @@ function findStoriesByUserMatchingText(db, user, text, locale, currentUser) {
  * @param  {User} user
  * @param  {Array<String>} tags
  * @param  {User} currentUser
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Story>>}
  */
-function findStoriesByUserWithTags(db, user, tags, currentUser) {
+function findStoriesByUserWithTags(db, user, tags, currentUser, minimum) {
     return db.find({
         table: 'story',
         criteria: {
@@ -316,7 +318,7 @@ function findStoriesByUserWithTags(db, user, tags, currentUser) {
             public: publicOnly(currentUser),
             limit: 500,
         },
-        minimum: 5,
+        minimum
     });
 }
 
@@ -327,10 +329,11 @@ function findStoriesByUserWithTags(db, user, tags, currentUser) {
  * @param  {User} user
  * @param  {String} date
  * @param  {User} currentUser
+ * @param  {Number|undefined} minimum
  *
  * @return {Promise<Array<Story>>}
  */
-function findStoriesByUserOnDate(db, user, date, currentUser) {
+function findStoriesByUserOnDate(db, user, date, currentUser, minimum) {
     return db.find({
         table: 'story',
         criteria: {
@@ -341,8 +344,7 @@ function findStoriesByUserOnDate(db, user, date, currentUser) {
             public: publicOnly(currentUser),
             limit: 500,
         },
-        prefetch: (date >= DateTracker.today),
-        minimum: 5,
+        minimum
     });
 }
 
@@ -353,14 +355,15 @@ function findStoriesByUserOnDate(db, user, date, currentUser) {
  * @param  {String} type
  * @param  {User} user
  * @param  {User} currentUser
+ * @param  {Boolean|undefined} blockIfStale
  *
  * @return {Promise<Array<Story>|null>}
  */
-function findStoriesByUserInListing(db, type, user, currentUser) {
+function findStoriesByUserInListing(db, type, user, currentUser, blockIfStale) {
     if (!currentUser) {
         return Promise.resolve(Empty.array);
     }
-    return db.findOne({
+    var query = {
         table: 'listing',
         criteria: {
             type: type,
@@ -369,8 +372,13 @@ function findStoriesByUserInListing(db, type, user, currentUser) {
                 user_ids: [ user.id ],
                 public: publicOnly(currentUser)
             },
-        }
-    }).then((listing) => {
+        },
+        prefetch: true,
+    };
+    if (blockIfStale) {
+        query.blocking = 'stale';
+    }
+    return db.findOne(query).then((listing) => {
         if (!listing) {
             return null;
         }
@@ -396,11 +404,12 @@ function findStoriesByUserInListing(db, type, user, currentUser) {
  * @param  {User} user
  * @param  {User} currentUser
  * @param  {Number} perUserLimit
+ * @param  {Boolean|undefined} blockIfStale
  *
  * @return {Promise<Array<Story>|null>}
  */
-function findStoriesByUsersInListings(db, type, users, currentUser, perUserLimit) {
-    return db.find({
+function findStoriesByUsersInListings(db, type, users, currentUser, perUserLimit, blockIfStale) {
+    var query = {
         table: 'listing',
         criteria: {
             type: type,
@@ -411,8 +420,13 @@ function findStoriesByUsersInListings(db, type, users, currentUser, perUserLimit
                     public: publicOnly(currentUser)
                 }
             }),
-        }
-    }).then((listings) => {
+        },
+        prefetch: true,
+    };
+    if (blockIfStale) {
+        query.blocking = 'stale';
+    }
+    return db.find(query).then((listings) => {
         var storyIds = _.flatten(_.map(listings, (listing) => {
             return _.slice(listing.story_ids, - perUserLimit);
         }));
@@ -432,14 +446,15 @@ function findStoriesByUsersInListings(db, type, users, currentUser, perUserLimit
  * @param  {String} type
  * @param  {Array<Number>} roleIds
  * @param  {User} currentUser
+ * @param  {Boolean|undefined} blockIfStale
  *
  * @return {Promise<Array<Story>|null>}
  */
-function findStoriesWithRolesInListing(db, type, roleIds, currentUser) {
+function findStoriesWithRolesInListing(db, type, roleIds, currentUser, blockIfStale) {
     if (!currentUser) {
         return Promise.resolve(Empty.array);
     }
-    return db.findOne({
+    var query = {
         table: 'listing',
         criteria: {
             type: type,
@@ -448,8 +463,13 @@ function findStoriesWithRolesInListing(db, type, roleIds, currentUser) {
                 role_ids: roleIds,
                 public: publicOnly(currentUser)
             },
-        }
-    }).then((listing) => {
+        },
+        prefetch: true,
+    };
+    if (blockIfStale) {
+        query.blocking = 'stale';
+    }
+    return db.findOne(query).then((listing) => {
         if (!listing) {
             return null;
         }
@@ -470,7 +490,7 @@ function findStoriesWithRolesInListing(db, type, roleIds, currentUser) {
  * @return {Promise<Array<Story>>}
  */
 function findStoriesOfNotifications(db, notifications, currentUser) {
-    var ids = _.map(notifications, 'story_id');
+    var ids = _.filter(_.map(notifications, 'story_id'));
     return findViewableStories(db, ids, currentUser);
 }
 

@@ -1,8 +1,10 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
+var Moment = require('moment');
 var React = require('react'), PropTypes = React.PropTypes;
 var Async = require('async-do-while');
 var HTTPRequest = require('transport/http-request');
+var NotificationUnpacker = require('transport/notification-unpacker');
 
 // widgets
 var Diagnostics = require('widgets/diagnostics');
@@ -13,10 +15,13 @@ module.exports = React.createClass({
     propTypes: {
         serverAddress: PropTypes.string,
         relayAddress: PropTypes.string,
+        android: PropTypes.object.isRequired,
+        ios: PropTypes.object.isRequired,
+        windows: PropTypes.object.isRequired,
         initialReconnectionDelay: PropTypes.number,
         maximumReconnectionDelay: PropTypes.number,
         searching: PropTypes.bool,
-        hasConnection: PropTypes.bool,
+        online: PropTypes.bool,
 
         onConnect: PropTypes.func,
         onDisconnect: PropTypes.func,
@@ -39,6 +44,13 @@ module.exports = React.createClass({
         return {
             initialReconnectionDelay: 500,
             maximumReconnectionDelay: 30000,
+            android: {},
+            ios: {
+                alert: true,
+                badge: true,
+                sound: true,
+            },
+            windows: {},
         };
     },
 
@@ -48,6 +60,9 @@ module.exports = React.createClass({
      * @return {Object}
      */
     getInitialState: function() {
+        this.currentNotificationId = null;
+        this.searchEndTimeout = null;
+        this.backgroundTaskTimeout = null;
         return {
             registrationId: null,
             registrationType: null,
@@ -57,51 +72,25 @@ module.exports = React.createClass({
     },
 
     /**
-     * Wait for database queries to end or time limit to be reached
-     *
-     * @param  {Number} limit
-     *
-     * @return {Promise}
-     */
-    waitForSearchIdling: function(limit) {
-        return new Promise((resolve, reject) => {
-            var timeout;
-            var onSearchIdling = () => {
-                resolve();
-                this.onSearchIdling = null;
-                clearTimeout(timeout);
-            };
-            // ensure it's trigger within a given amount of time
-            timeout = setTimeout(onSearchIdling, limit);
-            if (this.onSearchIdling) {
-                // call the previous handler
-                this.onSearchIdling();
-            }
-            this.onSearchIdling = onSearchIdling;
-        });
-    },
-
-    /**
-     * Wait for props.hasConnection to become true
+     * Wait for props.online to become true
      *
      * @return {Promise}
      */
     waitForConnectivity: function() {
-        if (this.props.hasConnection) {
+        if (this.props.online) {
             return Promise.resolve();
-        } else {
-            if (!this.connectivityPromise) {
-                this.connectivityPromise = new Promise((resolve, reject) => {
-                    // call function in componentWillReceiveProps
-                    this.onConnectivity = () => {
-                        this.connectivityPromise = null;
-                        this.onConnectivity = null;
-                        resolve();
-                    };
-                });
-            }
-            return this.connectivityPromise;
         }
+        if (!this.connectivityPromise) {
+            this.connectivityPromise = new Promise((resolve, reject) => {
+                // call function in componentWillReceiveProps
+                this.onConnectivity = () => {
+                    this.connectivityPromise = null;
+                    this.onConnectivity = null;
+                    resolve();
+                };
+            });
+        }
+        return this.connectivityPromise;
     },
 
     /**
@@ -111,12 +100,24 @@ module.exports = React.createClass({
      */
     componentWillReceiveProps: function(nextProps) {
         // check if database queries have finished
-        if (this.props.searching && !nextProps.searching) {
-            if (this.onSearchIdling) {
-                this.onSearchIdling();
+        if (this.props.searching !== nextProps.searching) {
+            if (nextProps.searching) {
+                if (this.searchEndTimeout) {
+                    // we've started searching again
+                    clearTimeout(this.searchEndTimeout);
+                    this.searchEndTimeout = null;
+                }
+            } else {
+                // if not search is initiated within 1 second, then stop
+                // background processing
+                this.searchEndTimeout = setTimeout(() => {
+                    this.endBackgroundTask();
+                    this.searchEndTimeout = null;
+                    console.log('Search end');
+                }, 1000);
             }
         }
-        if (!this.props.hasConnection && nextProps.hasConnection) {
+        if (!this.props.online && nextProps.online) {
             if (this.onConnectivity) {
                 this.onConnectivity();
             }
@@ -132,13 +133,9 @@ module.exports = React.createClass({
                 return;
             }
             var params = {
-                android: {},
-                ios: {
-                    alert: true,
-                    badge: true,
-                    sound: true,
-                },
-                windows: {},
+                android: this.props.android,
+                ios: this.props.ios,
+                windows: this.props.windows,
             };
             pushNotification = PushNotification.init(params);
         }
@@ -277,15 +274,13 @@ module.exports = React.createClass({
     /**
      * Notify parent component that a change event was received
      *
-     * @param  {String} address
      * @param  {Object} changes
      */
-    triggerNotifyEvent: function(address, changes) {
+    triggerNotifyEvent: function(changes) {
         if (this.props.onNotify) {
             this.props.onNotify({
                 type: 'notify',
                 target: this,
-                address,
                 changes,
             });
         }
@@ -309,18 +304,56 @@ module.exports = React.createClass({
     /**
      * Inform parent component that an alert was clicked
      *
-     * @param  {String} address
      * @param  {Object} alert
      */
-    triggerAlertClickEvent: function(address, alert) {
+    triggerAlertClickEvent: function(alert) {
         if (this.props.onAlertClick) {
             this.props.onAlertClick({
                 type: 'alertclick',
                 target: this,
-                address,
                 alert,
-            })
+            });
         }
+    },
+
+    /**
+     * Set id of current notification and start a timer limiting amount of
+     * time spent on background retrieval
+     *
+     * @param  {Number} notId
+     */
+    startBackgroundTask: function(notId) {
+        if (this.currentNotificationId) {
+            // clear the current one
+            this.endBackgroundTask();
+        }
+        this.currentNotificationId = notId;
+        if (!this.backgroundTaskTimeout) {
+            this.backgroundTaskTimeout = setTimeout(() => {
+                this.endBackgroundTask();
+                this.backgroundTaskTimeout = null;
+            }, 5000);
+        }
+    },
+
+    /**
+     * Signal background task associated with current notification is done or
+     * is being forced to stop
+     */
+    endBackgroundTask: function() {
+        if (this.currentNotificationId) {
+            signalBackgroundTaskCompletion(this.currentNotificationId);
+            this.currentNotificationId = null;
+        }
+    },
+
+    /**
+     * Immediately signal end of background task
+     *
+     * @param  {Number} notId
+     */
+    skipBackgroundTask: function(notId) {
+        signalBackgroundTaskCompletion(notId);
     },
 
     /**
@@ -346,12 +379,16 @@ module.exports = React.createClass({
      * @param  {Object} data
      */
     handleNotification: function(data) {
-        if (cordova.platformId === 'windows') {
-            // handle WNS response separately
-            this.handleWNSNotification(data);
-        } else {
-            // GCM and APNS responses are sufficiently normalized
-            this.handleGCMNotification(data);
+        switch (cordova.platformId) {
+            case 'android':
+                this.handleGCMNotification(data);
+                break;
+            case 'ios':
+                this.handleAPNSNotification(data);
+                break;
+            case 'windows':
+                this.handleWNSNotification(data);
+                breka;
         }
 
         // store data received in a list for diagnostic purpose
@@ -364,28 +401,47 @@ module.exports = React.createClass({
     },
 
     /**
-     * Handle notification on Android and iOS
+     * Handle notification on Android
      *
      * @param  {Object} data
      */
     handleGCMNotification: function(data) {
-        var additionalData = data.additionalData;
-        var address = additionalData.address;
-        var changes = additionalData.changes;
-        if (changes) {
-            this.triggerNotifyEvent(address, changes);
-
-            this.waitForSearchIdling(10 * 1000).then(() => {
-                signalBackgroundProcessCompletion(data.notId);
-            });
-        } else if (data.message) {
-            // if notification was received in the background, the event is
-            // triggered when the user clicks on the notification
-            if (!additionalData.foreground) {
-                var alert = recreateAlert(additionalData);
-                this.triggerAlertClickEvent(address, alert);
-                signalBackgroundProcessCompletion(data.notId);
+        var payload = data.additionalData;
+        var notification = NotificationUnpacker.unpack(payload) || {};
+        if (notification.type === 'change') {
+            this.triggerNotifyEvent(notification.changes);
+        } else {
+            if (notification.type === 'alert') {
+                // if notification was received in the background, the event is
+                // triggered when the user clicks on the notification
+                if (!notification.alert.foreground) {
+                    this.triggerAlertClickEvent(notification.alert);
+                }
             }
+        }
+    },
+
+    /**
+     * Handle notification on iOS
+     *
+     * @param  {Object} data
+     */
+    handleAPNSNotification: function(data) {
+        var payload = data.additionalData;
+        var notId = payload.notId;
+        var notification = NotificationUnpacker.unpack(payload) || {};
+        if (notification.type === 'change') {
+            this.triggerNotifyEvent(notification.changes);
+            this.startBackgroundTask(notId);
+        } else {
+            if (notification.type === 'alert') {
+                // if notification was received in the background, the event is
+                // triggered when the user clicks on the notification
+                if (!notification.alert.foreground) {
+                    this.triggerAlertClickEvent(notification.alert);
+                }
+            }
+            this.skipBackgroundTask(notId);
         }
     },
 
@@ -395,22 +451,25 @@ module.exports = React.createClass({
      * @param  {Object} data
      */
     handleWNSNotification: function(data) {
+        var notification;
         if (data.launchArgs) {
             // notification is clicked while app isn't running
-            var additionalData = JSON.parse(data.launchArgs);
-            var address = additionalData.address;
-            var alert = recreateAlert(additionalData);
-            this.triggerAlertClickEvent(address, alert);
+            var payload = parseJSON(data.launchArgs);
+            notification = NotificationUnpacker.unpack(payload);
         } else {
+            // payload is stored as raw data
             var eventArgs = data.additionalData.pushNotificationReceivedEventArgs;
             if (eventArgs.notificationType === 3) { // raw
                 var raw = eventArgs.rawNotification;
-                var additionalData = JSON.parse(raw.content);
-                var address = additionalData.address;
-                var changes = additionalData.changes;
-                if (changes) {
-                    this.triggerNotifyEvent(address, changes);
-                }
+                var payload = parseJSON(raw.content);
+                notification = NotificationUnpacker.unpack(payload);
+            }
+        }
+        if (notification) {
+            if (notification.type === 'change') {
+                this.triggerNotifyEvent(notification.changes);
+            } else if (notification.type === 'alert') {
+                this.triggerAlertClickEvent(notification.alert);
             }
         }
     },
@@ -423,10 +482,13 @@ module.exports = React.createClass({
     handleActivation: function(context) {
         var launchArgs = context.args;
         if (launchArgs) {
-            var additionalData = JSON.parse(launchArgs);
-            var address = additionalData.address;
-            var alert = recreateAlert(additionalData);
-            this.triggerAlertClickEvent(address, alert);
+            var payload = JSON.parse(launchArgs);
+            var notification = NotificationUnpacker.unpack(payload);
+            if (notification) {
+                if (notification.type === 'alert') {
+                    this.triggerAlertClickEvent(notification.alert);
+                }
+            }
         }
     },
 
@@ -491,23 +553,20 @@ function renderJSON(object, i) {
     return <pre key={i}>{JSON.stringify(object, undefined, 4)}</pre>;
 }
 
-function recreateAlert(additionalData) {
-    return {
-        title: '',
-        message: '',
-        type: additionalData.type,
-        schema: additionalData.schema,
-        notification_id: parseInt(additionalData.notification_id),
-        reaction_id: parseInt(additionalData.reaction_id),
-        story_id: parseInt(additionalData.story_id),
-        user_id: parseInt(additionalData.user_id),
-    };
+function parseJSON(text) {
+    try {
+        return JSON.parse(text);
+    } catch (err) {
+        return {};
+    }
 }
 
-function signalBackgroundProcessCompletion(notId) {
-    if (pushNotification && notId) {
+function signalBackgroundTaskCompletion(notId) {
+    if (pushNotification) {
         if (cordova.platformId === 'ios') {
-            pushNotification.finish(notId);
+            var success = () => {};
+            var failure = () => {};
+            pushNotification.finish(success, failure, notId);
         }
     }
 }

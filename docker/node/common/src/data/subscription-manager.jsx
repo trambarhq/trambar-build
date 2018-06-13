@@ -31,7 +31,8 @@ module.exports = React.createClass({
      */
     getInitialState: function() {
         return {
-            subscription: null
+            subscription: null,
+            serverAddress: null
         };
     },
 
@@ -50,13 +51,18 @@ module.exports = React.createClass({
 
     /**
      * Create or update data subscription
+     *
+     * @param  {Object} prevProps
+     * @param  {Object} prevState
      */
-    componentDidUpdate: function() {
-        if (!this.props.connection || !this.props.database) {
+    componentDidUpdate: function(prevProps, prevState) {
+        if (!this.props.connection || !this.props.database || !this.props.locale) {
             return;
         }
         var db = this.props.database.use({ schema: 'global', by: this });
         db.start().then((userId) => {
+            var existingSubscription = this.state.subscription;
+            var serverAddress = db.context.address;
             var subscription = {
                 user_id: userId,
                 schema: this.props.schema,
@@ -67,28 +73,36 @@ module.exports = React.createClass({
                 relay: this.props.connection.relay,
                 details: this.props.connection.details,
             };
-            if (_.isMatch(this.state.subscription, subscription)) {
-                // subscription is being created or has been created
-                return;
-            }
-            var subscriptionId = _.get(this.state.subscription, 'id');
-            this.setState({ subscription });
-            if (subscriptionId) {
-                // update the subscription instead of creating a new one
-                subscription = _.clone(subscription);
-                subscription.id = subscriptionId;
+            if (existingSubscription && this.state.serverAddress === serverAddress) {
+                if (_.isMatch(existingSubscription, subscription)) {
+                    // subscription is being created or has been created
+                    return;
+                } else {
+                    // update the subscription instead of creating a new one
+                    _.assign(existingSubscription, subscription);
+                    subscription = existingSubscription;
+                }
+            } else {
+                // replace the subscription, letting the old one expire on its own
+                this.setState({ subscription, serverAddress });
             }
             return db.saveOne({ table: 'subscription' }, subscription).then((subscription) => {
                 this.setState({ subscription });
                 return null;
             }).catch((err) => {
-                // TODO retry
-                // this.setState({ subscription: null });
-                return null;
+                if (err.statusCode === 404 && subscription.id) {
+                    // somehow we have a non-existing subscription, probably
+                    // because we've reset the database
+                    subscription.id = undefined;
+                    return db.saveOne({ table: 'subscription' }, subscription).then((subscription) => {
+                        this.setState({ subscription });
+                        return null;
+                    });
+                }
             });
         }).catch((err) => {
             if (err.statusCode === 401) {
-                // not access to server
+                // no access to server
             } else {
                 throw err;
             }

@@ -19,6 +19,7 @@ module.exports = {
  * Import an activity log entry about an issue
  *
  * @param  {Database} db
+ * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {Project} project
@@ -27,7 +28,7 @@ module.exports = {
  *
  * @return {Promise<Story>}
  */
-function importEvent(db, server, repo, project, author, glEvent) {
+function importEvent(db, system, server, repo, project, author, glEvent) {
     var schema = project.name;
     var repoLink = ExternalDataUtils.findLink(repo, server);
     return fetchIssue(server, repoLink.project.id, glEvent.target_id).then((glIssue) => {
@@ -39,7 +40,7 @@ function importEvent(db, server, repo, project, author, glEvent) {
         };
         return Story.findOne(db, schema, criteria, '*').then((story) => {
             return AssignmentImporter.findIssueAssignments(db, server, glIssue).then((assignments) => {
-                var storyAfter = copyIssueProperties(story, server, repo, author, assignments, glIssue);
+                var storyAfter = copyIssueProperties(story, system, server, repo, author, assignments, glIssue);
                 if (storyAfter === story) {
                     return story;
                 }
@@ -67,6 +68,7 @@ function importEvent(db, server, repo, project, author, glEvent) {
  * Handle a Gitlab hook event concerning an issue
  *
  * @param  {Database} db
+ * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {Project} project
@@ -75,7 +77,7 @@ function importEvent(db, server, repo, project, author, glEvent) {
  *
  * @return {Promise<Story|false>}
  */
-function importHookEvent(db, server, repo, project, author, glHookEvent) {
+function importHookEvent(db, system, server, repo, project, author, glHookEvent) {
     if (glHookEvent.object_attributes.action === 'update') {
         // construct a glIssue object from data in hook event
         var repoLink = ExternalDataUtils.findLink(repo, server);
@@ -99,7 +101,7 @@ function importHookEvent(db, server, repo, project, author, glHookEvent) {
                 throw new Error('Story not found');
             }
             return AssignmentImporter.findIssueAssignments(db, server, glIssue).then((assignments) => {
-                var storyAfter = copyIssueProperties(story, server, repo, author, assignments, glIssue);
+                var storyAfter = copyIssueProperties(story, system, server, repo, author, assignments, glIssue);
                 if (storyAfter === story) {
                     return story;
                 }
@@ -137,6 +139,7 @@ function importHookEvent(db, server, repo, project, author, glHookEvent) {
  *   iid - is uniq only in scope of single project
  *
  * @param  {Story|null} story
+ * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
  * @param  {User} author
@@ -145,25 +148,13 @@ function importHookEvent(db, server, repo, project, author, glHookEvent) {
  *
  * @return {Story}
  */
-function copyIssueProperties(story, server, repo, author, assignments, glIssue) {
+function copyIssueProperties(story, system, server, repo, author, assignments, glIssue) {
     var descriptionTags = TagScanner.findTags(glIssue.description);
     var labelTags = _.map(glIssue.labels, (label) => {
         return `#${_.replace(label, /\s+/g, '-')}`;
     });
     var tags = _.union(descriptionTags, labelTags);
-
-    // author is either the person who wrote the issue or the one who wrote
-    // the post that was exported to issue-tracker
-    var authorIds = _.get(story, 'details.authors', [ author.id ]);
-    var exporterIds = _.get(story, 'details.exporters');
-    var assigneeIds = [];
-    var roleIds = _.get(story, 'role_ids', author.role_ids);
-
-    // add ids of any new assignees
-    _.each(assignments, (assignment) => {
-        assigneeIds = _.union(assigneeIds, [ assignment.user.id ]);
-        roleIds = _.union(roleIds, assignment.user.role_ids);
-    });
+    var defLangCode = _.get(system, [ 'settings', 'input_languages', 0 ]);
 
     var storyAfter = _.cloneDeep(story) || {};
     ExternalDataUtils.inheritLink(storyAfter, server, repo, {
@@ -181,23 +172,21 @@ function copyIssueProperties(story, server, repo, author, assignments, glIssue) 
         value: tags,
         overwrite: 'always',
     });
+    ExternalDataUtils.importProperty(storyAfter, server, 'language_codes', {
+        value: [ defLangCode ],
+        overwrite: 'always',
+    });
     ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
-        value: _.union(authorIds, exporterIds, assigneeIds),
+        value: [ author.id ],
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'role_ids', {
-        value: roleIds,
+        value: author.role_ids,
         overwrite: 'always',
     });
-    ExternalDataUtils.importProperty(storyAfter, server, 'details.assignees', {
-        value: assigneeIds,
-        overwrite: 'always',
-    });
-    // title is imported only if issue isn't confidential
     ExternalDataUtils.importProperty(storyAfter, server, 'details.title', {
-        value: (glIssue.confidential) ? undefined : glIssue.title,
+        value: glIssue.title,
         overwrite: 'match-previous:title',
-        ignore: exported && glIssue.confidential,
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'details.labels', {
         value: glIssue.labels,
