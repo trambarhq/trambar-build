@@ -62,6 +62,7 @@ if (part === 'client' || part === 'all') {
 if (part === 'backend' || part === 'all') {
     // copy files into Docker folder for Node image
     Folder.copy(`${wf}/backend`, 'docker/node/backend');
+    Folder.copy(`${wf}/client/src/locales`, 'docker/node/backend/src/locales');
     Folder.copy(`${wf}/common`, 'docker/node/common');
     File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
 }
