@@ -64,6 +64,6 @@ if (part === 'backend' || part === 'all') {
     Folder.copy(`${wf}/backend`, 'docker/node/backend');
     Folder.copy(`${wf}/client/src/locales`, 'docker/node/backend/src/locales');
     Folder.copy(`${wf}/common`, 'docker/node/common');
-    File.remove(`${wf}/client/src/.gitignore`);
+    File.remove(`docker/node/backend/src/.gitignore`);
     File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
 }
