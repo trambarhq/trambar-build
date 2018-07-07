@@ -27,6 +27,7 @@ module.exports = React.createClass({
         onDisconnect: PropTypes.func,
         onNotify: PropTypes.func,
         onAlertClick: PropTypes.func,
+        onRevalidate: PropTypes.func,
     },
 
     statics: {
@@ -113,7 +114,6 @@ module.exports = React.createClass({
                 this.searchEndTimeout = setTimeout(() => {
                     this.endBackgroundTask();
                     this.searchEndTimeout = null;
-                    console.log('Search end');
                 }, 1000);
             }
         }
@@ -302,6 +302,21 @@ module.exports = React.createClass({
     },
 
     /**
+     * Notify parent component that we've received a cache revalidation request
+     *
+     * @param  {Object} revalidation
+     */
+    triggerRevalidateEvent: function(revalidation) {
+        if (this.props.onRevalidate) {
+            this.props.onRevalidate({
+                type: 'revalidate',
+                target: this,
+                revalidation,
+            });
+        }
+    },
+
+    /**
      * Inform parent component that an alert was clicked
      *
      * @param  {Object} alert
@@ -326,13 +341,14 @@ module.exports = React.createClass({
         if (this.currentNotificationId) {
             // clear the current one
             this.endBackgroundTask();
-            clearTimeout(this.backgroundTaskTimeout);
         }
         this.currentNotificationId = notId;
-        this.backgroundTaskTimeout = setTimeout(() => {
-            this.endBackgroundTask();
-            this.backgroundTaskTimeout = null;
-        }, 5000);
+        if (!this.backgroundTaskTimeout) {
+            this.backgroundTaskTimeout = setTimeout(() => {
+                this.endBackgroundTask();
+                this.backgroundTaskTimeout = null;
+            }, 5000);
+        }
     },
 
     /**
@@ -378,12 +394,16 @@ module.exports = React.createClass({
      * @param  {Object} data
      */
     handleNotification: function(data) {
-        if (cordova.platformId === 'windows') {
-            // handle WNS response separately
-            this.handleWNSNotification(data);
-        } else {
-            // GCM and APNS responses are sufficiently normalized
-            this.handleGCMNotification(data);
+        switch (cordova.platformId) {
+            case 'android':
+                this.handleGCMNotification(data);
+                break;
+            case 'ios':
+                this.handleAPNSNotification(data);
+                break;
+            case 'windows':
+                this.handleWNSNotification(data);
+                breka;
         }
 
         // store data received in a list for diagnostic purpose
@@ -396,26 +416,56 @@ module.exports = React.createClass({
     },
 
     /**
-     * Handle notification on Android and iOS
+     * Handle notification on Android
      *
      * @param  {Object} data
      */
     handleGCMNotification: function(data) {
+        var payload = data.additionalData;
+        var notification = NotificationUnpacker.unpack(payload) || {};
+        if (notification.type === 'change') {
+            this.triggerNotifyEvent(notification.changes);
+        } else if (notification.type === 'revalidation') {
+            this.triggerRevalidateEvent(notification.revalidation);
+        } else if (notification.type === 'alert') {
+            // if notification was received in the background, the event is
+            // triggered when the user clicks on the notification
+            if (!notification.alert.foreground) {
+                this.triggerAlertClickEvent(notification.alert);
+            }
+        }
+        if (data.count !== undefined) {
+            setApplicationIconBadgeNumber(data.count);
+        }
+    },
+
+    /**
+     * Handle notification on iOS
+     *
+     * @param  {Object} data
+     */
+    handleAPNSNotification: function(data) {
         var payload = data.additionalData;
         var notId = payload.notId;
         var notification = NotificationUnpacker.unpack(payload) || {};
         if (notification.type === 'change') {
             this.triggerNotifyEvent(notification.changes);
             this.startBackgroundTask(notId);
-        } else {
-            if (notification.type === 'alert') {
-                // if notification was received in the background, the event is
-                // triggered when the user clicks on the notification
-                if (!notification.alert.foreground) {
-                    this.triggerAlertClickEvent(notification.alert);
-                }
+        } else if (notification.type === 'revalidation') {
+            this.triggerRevalidateEvent(notification.revalidation);
+            this.startBackgroundTask(notId);
+        } else if (notification.type === 'alert') {
+            // if notification was received in the background, the event is
+            // triggered when the user clicks on the notification
+            if (!notification.alert.foreground) {
+                this.triggerAlertClickEvent(notification.alert);
             }
             this.skipBackgroundTask(notId);
+        } else {
+            this.skipBackgroundTask(notId);
+        }
+        if (data.count !== undefined) {
+            setApplicationIconBadgeNumber(data.count);
         }
     },
 
@@ -444,6 +494,8 @@ module.exports = React.createClass({
                 this.triggerNotifyEvent(notification.changes);
             } else if (notification.type === 'alert') {
                 this.triggerAlertClickEvent(notification.alert);
+            } else if (notification.type === 'revalidation') {
+                this.triggerRevalidateEvent(notification.revalidation);
             }
         }
     },
@@ -541,6 +593,16 @@ function signalBackgroundTaskCompletion(notId) {
             var success = () => {};
             var failure = () => {};
             pushNotification.finish(success, failure, notId);
+        }
+    }
+}
+
+function setApplicationIconBadgeNumber(count) {
+    if (pushNotification) {
+        if (cordova.platformId === 'android' || cordova.platformId === 'ios') {
+            var success = () => {};
+            var failure = () => {};
+            pushNotification.setApplicationIconBadgeNumber(success, failure, count);
         }
     }
 }

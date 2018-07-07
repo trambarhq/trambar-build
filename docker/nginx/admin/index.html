@@ -79,6 +79,28 @@ BODY {
     background-color: #006699;
 }
 
+#bootstrap-progress-bar {
+    position: absolute;
+    right: 0.5em;
+    bottom: 0.5em;
+    width: 10%;
+    min-width: 75px;
+    max-width: 150px;
+    border: 1px solid #ffffff;
+    transition: opacity 1s;
+    opacity: 0;
+}
+
+#bootstrap-progress-bar.show {
+    opacity: 1;
+}
+
+#bootstrap-progress-bar-filled {
+    width: 0;
+    height: 0.5em;
+    background-color: #ffffff;
+}
+
 </style>
 <div id="splash-screen">
     <div class="background"></div>
@@ -112,7 +134,10 @@ BODY {
           </g>
       </g>
     </svg>
+    <div id="bootstrap-progress-bar">
+        <div id="bootstrap-progress-bar-filled"></div>
+    </div>
 </div>
 
-<script type="text/javascript" src="main.js?7d2b0ba3048f548f3803"></script></body>
+<script type="text/javascript" src="main.js?6ec8fa5729b5886d2547"></script></body>
 </html>
