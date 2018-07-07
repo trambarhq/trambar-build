@@ -18,8 +18,8 @@
     <preference name="StatusBarBackgroundColor" value="#000000" />
     <preference name="StatusBarStyle" value="lightcontent" />
     <preference name="WindowsStoreIdentityName" value="30766ChungLeong.47921BED0F054" />
-    <preference name="WindowsStorePublisherName" value="CN=551DB39E-3E6F-4B89-81B2-B0C4C4CFEFA1" />
-    <preference name="WindowsStoreDisplayName" value="Chung Leong" />
+    <preference name="WindowsStorePublisher" value="CN=551DB39E-3E6F-4B89-81B2-B0C4C4CFEFA1" />
+    <preference name="WindowsStorePublisherName" value="Chung Leong" />
     <preference name="BackupWebStorage" value="local" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
