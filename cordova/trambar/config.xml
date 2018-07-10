@@ -110,7 +110,7 @@
     <platform name="windows">
         <splash height="300" src="res/screen/windows/splashscreen.scale-100.png" width="620" />
         <splash height="375" src="res/screen/windows/splashscreen.scale-125.png" width="775" />
-        <splash height="420" src="res/screen/windows/splashscreen.scale-150.png" width="868" />
+        <splash height="420" src="res/screen/windows/splashscreen.scale-140.png" width="868" />
         <splash height="450" src="res/screen/windows/splashscreen.scale-150.png" width="930" />
         <splash height="540" src="res/screen/windows/splashscreen.scale-180.png" width="1116" />
         <splash height="600" src="res/screen/windows/splashscreen.scale-200.png" width="1240" />
