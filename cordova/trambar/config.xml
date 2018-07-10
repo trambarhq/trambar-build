@@ -140,10 +140,10 @@
     <plugin name="cordova-plugin-code-push" spec="^1.11.10" />
     <plugin name="cordova-plugin-zip" spec="^3.1.0" />
     <plugin name="cordova-plugin-ios-camera-permissions" spec="^1.2.0">
-        <variable name="CAMERA_USAGE_DESCRIPTION" value="Users can share photos and videos with their colleagues" />
-        <variable name="MICROPHONE_USAGE_DESCRIPTION" value="Users can share videos with their colleagues" />
-        <variable name="PHOTOLIBRARY_ADD_USAGE_DESCRIPTION" value="Users can share photos and videos with their colleagues" />
-        <variable name="PHOTOLIBRARY_USAGE_DESCRIPTION" value="Users can share photos and videos with their colleagues" />
+        <variable name="CAMERA_USAGE_DESCRIPTION" value="To share photos and videos with your colleagues" />
+        <variable name="MICROPHONE_USAGE_DESCRIPTION" value="To share audios and videos with your colleagues" />
+        <variable name="PHOTOLIBRARY_ADD_USAGE_DESCRIPTION" value="To share photos and videos with your colleagues" />
+        <variable name="PHOTOLIBRARY_USAGE_DESCRIPTION" value="To share photos and videos with your colleagues" />
     </plugin>
     <plugin name="cordova-plugin-add-swift-support" spec="^1.7.2" />
     <plugin name="cordova-plugin-background-upload" spec="^1.0.8" />
