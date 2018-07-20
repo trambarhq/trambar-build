@@ -83,7 +83,7 @@ module.exports = function(localeCode) {
         'bookmark-$name-recommends-this': (name) => {
             return `${name} poleca to`;
         },
-        'bookmark-$name1-and-$name2-recommend-this': (name) => {
+        'bookmark-$name1-and-$name2-recommend-this': (name1, name2) => {
             return [ name1, ' i ', name2, ' polecają to' ];
         },
         'bookmark-$you-bookmarked-it': (you) => {
@@ -379,6 +379,10 @@ module.exports = function(localeCode) {
             var e = pastTenseEnding(name, 3);
             return `${name} skomentował${e} zmiany w tym wgrywaniu`;
         },
+        'reaction-$name-commented-on-tag': (name) => {
+            var e = pastTenseEnding(name, 3);
+            return `${name} skomentował${e} ten tag`;
+        },
         'reaction-$name-completed-a-task': (name) => {
             var e = pastTenseEnding(name, 3);
             return `${name} wykonał${e} zadanie`;
@@ -514,6 +518,10 @@ module.exports = function(localeCode) {
                 text += ` „${repo}”`;
             }
             return text;
+        },
+        'story-$name-created-$tag-in-$repo': (name, tag, repo) => {
+            var e = pastTenseEnding(name, 3);
+            return `Stworzył${e} tag „${tag}” w projektcie „${repo}”`;
         },
         'story-$name-deleted-$page': (name, page) => {
             var e = pastTenseEnding(name, 3);
@@ -754,6 +762,10 @@ module.exports = function(localeCode) {
             var e = pastTenseEnding(name, 3);
             return `Stworzył${e} projekt gita`;
         },
+        'user-activity-$name-created-tag': (name) => {
+            var e = pastTenseEnding(name, 3);
+            return `Stworzył${e} nowy tag`;
+        },
         'user-activity-$name-edited-wiki-page': (name) => {
             var e = pastTenseEnding(name, 3);
             return `Redagował${e} stronę wiki`;
@@ -844,8 +856,8 @@ module.exports = function(localeCode) {
 
         'user-info-email': 'Adres e-mail',
         'user-info-gender': 'Płeć',
-        'user-info-gender-female': 'Żeńska',
-        'user-info-gender-male': 'Męska',
+        'user-info-gender-female': 'Kobieta',
+        'user-info-gender-male': 'Mężczyzna',
         'user-info-gender-unspecified': 'Nieokreślona',
         'user-info-name': 'Imię i nazwisko',
         'user-info-phone': 'Numer telefonu',
@@ -860,6 +872,7 @@ module.exports = function(localeCode) {
         'user-statistics-legend-push': 'Wgrywa kodu',
         'user-statistics-legend-repo': 'Zmiany repozytorium',
         'user-statistics-legend-survey': 'Ankiety',
+        'user-statistics-legend-tag': 'Nowe tagi',
         'user-statistics-legend-task-list': 'Listy zadań',
         'user-statistics-legend-wiki': 'Edycje Wiki',
         'user-statistics-today': 'Dziś',
@@ -951,6 +964,15 @@ module.exports = function(localeCode) {
                 return `${count} ankiety`;
             } else {
                 return `${count} ankiet`;
+            }
+        },
+        'user-statistics-tooltip-$count-tag': (count) => {
+            if (singular(count)) {
+                return `1 tag`;
+            } else if (plural(count)) {
+                return `${count} tagi`;
+            } else {
+                return `${count} tagów`;
             }
         },
         'user-statistics-tooltip-$count-task-list': (count) => {

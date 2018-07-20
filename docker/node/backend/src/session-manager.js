@@ -335,7 +335,14 @@ function handleOAuthTestRequest(req, res, done) {
     return findSystem().then((system) => {
         return findServer(serverId).then((server) => {
             var params = { test: 1, sid: serverId, handle: 'TEST' };
-            return authenticateThruPassport(req, res, system, server, params);
+            return authenticateThruPassport(req, res, system, server, params).then((account) => {
+                console.log(`OAuth authentication test:\n`);
+                console.log(`Display name = ${account.profile.displayName}`);
+                console.log(`User name = ${account.profile.username}`);
+                console.log(`User ID = ${account.profile.id}`);
+                console.log(`Email = ${_.map(account.profile.emails, 'value').join(', ')}`);
+                console.log(`Server type = ${server.type}`);
+            });
         });
     }).then(() => {
         var html = `<h1>OK</h1>`;
@@ -520,7 +527,18 @@ function authenticateThruPassport(req, res, system, server, params) {
                 message = info.message;
             } else if (err && err.message) {
                 if (err.oauthError) {
-                    message = err.oauthError.message;
+                    if (err.oauthError.message) {
+                        message = err.oauthError.message;
+                    } else if (err.oauthError.data) {
+                        try {
+                            var oauthResult = JSON.parse(err.oauthError.data);
+                            if (oauthResult.error) {
+                                message = oauthResult.error.message;
+                            }
+                        } catch(err) {
+                            message = err.message;
+                        }
+                    }
                 } else {
                     message = err.message;
                 }
@@ -1116,8 +1134,11 @@ function addServerSpecificOptions(server, params, options) {
                 options.scope = [ 'api' ];
             }
             break;
+        case 'github':
+            options.scope = [ 'user:email', 'read:user' ];
+            break;
         case 'google':
-            options.scope = [ 'profile' ];
+            options.scope = [ 'profile', 'email' ];
             break;
         case 'windows':
             options.scope = [ 'wl.signin', 'wl.basic', 'wl.emails' ];

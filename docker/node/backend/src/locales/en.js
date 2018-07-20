@@ -72,8 +72,8 @@ var americanPhrases = {
     'bookmark-$name-recommends-this': (name) => {
         return `${name} recommends this`;
     },
-    'bookmark-$name1-and-$name2-recommend-this': (name) => {
-        return [ name1, ' and ', name2, ' recommend this' ];
+    'bookmark-$name1-and-$name2-recommend-this': (name1, name2) => {
+        return `${name1} and ${name2} recommend this`;
     },
     'bookmark-$you-bookmarked-it': 'You bookmarked this',
     'bookmark-$you-bookmarked-it-and-$name-recommends-it': (you, name) => {
@@ -96,7 +96,7 @@ var americanPhrases = {
     'confirmation-confirm': 'Confirm',
 
     'development-code-push-$deployment': (deployment) => {
-        return `Pull code updates from "${deployment}"`;
+        return `Pull code updates from “${deployment}”`;
     },
     'development-show-diagnostics': 'Show diagnostics',
     'development-show-panel': 'Display this panel',
@@ -229,7 +229,7 @@ var americanPhrases = {
         switch (story) {
             case 'survey': story = 'a survey'; break;
             case 'task-list': story = 'a task list'; break;
-            case 'post': story = 'a post';
+            case 'post': story = 'a post'; break;
             default: story = 'a story';
         }
         return `${name} sent you a bookmark to ${story}`;
@@ -321,13 +321,16 @@ var americanPhrases = {
         return `${name} commented on this issue`;
     },
     'reaction-$name-commented-on-merge': (name) => {
-        return `${name} commented on a commit`;
+        return `${name} commented on this merge`;
     },
     'reaction-$name-commented-on-merge-request': (name) => {
         return `${name} commented on this merge request`;
     },
     'reaction-$name-commented-on-push': (name) => {
         return `${name} commented on this push`;
+    },
+    'reaction-$name-commented-on-tag': (name) => {
+        return `${name} commented on this tag`;
     },
     'reaction-$name-completed-a-task': (name) => {
         return `${name} completed a task`;
@@ -399,7 +402,7 @@ var americanPhrases = {
             ui.projects,
             ' panel, click ',
             ui.mobileSetup,
-            '. A QR code will appear on screen. Then on this device, press the button below and scan the code. Alternately, you may manually input the activation code.'
+            '. A QR code will appear on screen. On this device, press the button below and scan the code. Alternatively, you may manually input the activation code.'
         ];
     },
     'start-activation-instructions-short': (ui) => {
@@ -449,6 +452,9 @@ var americanPhrases = {
             text += ` “${repo}”`;
         }
         return text;
+    },
+    'story-$name-created-$tag-in-$repo': (name, tag, repo) => {
+        return `Created tag “${tag}” in project “${repo}”`;
     },
     'story-$name-deleted-$page': (name, page) => {
         return `Deleted wiki page “${page}”`;
@@ -601,6 +607,7 @@ var americanPhrases = {
     'user-activity-$name-created-merge-request': 'Made a merge request',
     'user-activity-$name-created-milestone': 'Created a milestone',
     'user-activity-$name-created-repo': 'Created a git project',
+    'user-activity-$name-created-tag': 'Created a new tag',
     'user-activity-$name-edited-wiki-page': 'Edited a wiki page',
     'user-activity-$name-joined-repo': 'Joined a git project',
     'user-activity-$name-left-repo': 'Left a git project',
@@ -655,6 +662,7 @@ var americanPhrases = {
     'user-statistics-legend-push': 'Code pushes',
     'user-statistics-legend-repo': 'Repo changes',
     'user-statistics-legend-survey': 'Surveys',
+    'user-statistics-legend-tag': 'New tags',
     'user-statistics-legend-task-list': 'Task lists',
     'user-statistics-legend-wiki': 'Wiki edits',
     'user-statistics-today': 'Today',
@@ -687,6 +695,9 @@ var americanPhrases = {
     },
     'user-statistics-tooltip-$count-survey': (count) => {
         return (count === 1) ? `1 survey` : `${count} surveys`;
+    },
+    'user-statistics-tooltip-$count-tag': (count) => {
+        return (count === 1) ? `1 tag` : `${count} tags`;
     },
     'user-statistics-tooltip-$count-task-list': (count) => {
         return (count === 1) ? `1 task list` : `${count} task lists`;

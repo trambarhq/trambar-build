@@ -83,7 +83,7 @@ module.exports = function(localeCode) {
         'bookmark-$name-recommends-this': (name) => {
             return `${name} рекомендует это`;
         },
-        'bookmark-$name1-and-$name2-recommend-this': (name) => {
+        'bookmark-$name1-and-$name2-recommend-this': (name1, name2) => {
             return [ name1, ' и ', name2, ' рекомендуют это' ];
         },
         'bookmark-$you-bookmarked-it': (you) => {
@@ -367,6 +367,10 @@ module.exports = function(localeCode) {
             var e = pastTenseEnding(name);
             return `${name} прокомментировал${e} это помещение`;
         },
+        'reaction-$name-commented-on-tag': (name) => {
+            var e = pastTenseEnding(name);
+            return `${name} прокомментировал${e} этот тег`;
+        },
         'reaction-$name-completed-a-task': (name) => {
             var e = pastTenseEnding(name);
             return `${name} выполнил задачу`;
@@ -501,6 +505,10 @@ module.exports = function(localeCode) {
                 text += ` «${repo}»`;
             }
             return text;
+        },
+        'story-$name-created-$tag-in-$repo': (name, tag, repo) => {
+            var e = pastTenseEnding(name);
+            return `Создал${e} тег «${tag}» в репозитории «${repo}»`;
         },
         'story-$name-deleted-$page': (name, page) => {
             var e = pastTenseEnding(name);
@@ -747,6 +755,10 @@ module.exports = function(localeCode) {
             var e = pastTenseEnding(name);
             return `Создал${e} проект git`;
         },
+        'user-activity-$name-created-tag': (name) => {
+            var e = pastTenseEnding(name);
+            return `Создал${e} новый тег`;
+        },
         'user-activity-$name-edited-wiki-page': (name) => {
             var e = pastTenseEnding(name);
             return `Редактировал${e} страницу wiki`;
@@ -859,6 +871,7 @@ module.exports = function(localeCode) {
         'user-statistics-legend-push': 'Помещения',
         'user-statistics-legend-repo': 'Изменения репозитория',
         'user-statistics-legend-survey': 'Опросы',
+        'user-statistics-legend-tag': 'Теги',
         'user-statistics-legend-task-list': 'Списки задач',
         'user-statistics-legend-wiki': 'Правки wiki',
         'user-statistics-today': 'Cегодня',
@@ -950,6 +963,15 @@ module.exports = function(localeCode) {
                 return `${count} опроса`;
             } else {
                 return `${count} опросов`;
+            }
+        },
+        'user-statistics-tooltip-$count-tag': (count) => {
+            if (singularN(count)) {
+                return `${count} тег`;
+            } else if (singularG(count)) {
+                return `${count} теги`;
+            } else {
+                return `${count} тегов`;
             }
         },
         'user-statistics-tooltip-$count-task-list': (count) => {

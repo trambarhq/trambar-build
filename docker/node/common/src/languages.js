@@ -8,7 +8,8 @@ module.exports = [
             pl: 'Polsko',
             sk: 'Slovensko',
         },
-        defaultCountry: 'cz'
+        defaultCountry: 'cz',
+        module: () => import('locales/cs' /* webpackChunkName: "locale-cs" */),
     },
     {
         name: 'Dansk',
@@ -34,6 +35,7 @@ module.exports = [
             ch: 'Schweiz',
         },
         defaultCountry: 'de',
+        module: () => import('locales/de' /* webpackChunkName: "locale-de" */),
     },
     {
         name: 'Ελληνικά',
@@ -123,6 +125,7 @@ module.exports = [
             tg: 'Togo',
         },
         defaultCountry: 'fr',
+        module: () => import('locales/fr' /* webpackChunkName: "locale-fr" */),
     },
     {
         name: '한국어',

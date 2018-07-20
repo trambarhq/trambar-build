@@ -53,7 +53,7 @@ module.exports = function(localeCode) {
         'bookmark-$name-recommends-this': (name) => {
             return `${name} lo raccomanda`;
         },
-        'bookmark-$name1-and-$name2-recommend-this': (name) => {
+        'bookmark-$name1-and-$name2-recommend-this': (name1, name2) => {
             return [ name1, ' o ', name2, ' lo raccomandano' ];
         },
         'bookmark-$you-bookmarked-it': "L'hai messo tra i segnalibri",
@@ -303,13 +303,16 @@ module.exports = function(localeCode) {
             return `${name} ha commentato questo problema`;
         },
         'reaction-$name-commented-on-merge': (name) => {
-            return `${name} ha commentato questo commit`;
+            return `${name} ha commentato questo merge`;
         },
         'reaction-$name-commented-on-merge-request': (name) => {
             return `${name} ha commentato questo merge richiesta`;
         },
         'reaction-$name-commented-on-push': (name) => {
             return `${name} ha commentato questo push`;
+        },
+        'reaction-$name-commented-on-tag': (name) => {
+            return `${name} ha commentato questo tag`;
         },
         'reaction-$name-completed-a-task': (name) => {
             return `${name} ha completato una attività`;
@@ -431,6 +434,9 @@ module.exports = function(localeCode) {
                 text += ` «${repo}»`;
             }
             return text;
+        },
+        'story-$name-created-$tag-in-$repo': (name, tag, repo) => {
+            return `Ha creato il tag «${tag}» nel repository «${repo}»`;
         },
         'story-$name-deleted-$page': (name, page) => {
             return `Ha rimosso la pagina wiki «${page}»`;
@@ -609,6 +615,7 @@ module.exports = function(localeCode) {
         'user-activity-$name-created-merge-request': "Ha fatto una merge richiesta",
         'user-activity-$name-created-milestone': "Ha creato un traguardo",
         'user-activity-$name-created-repo': "Ha creato un progetto git",
+        'user-activity-$name-created-tag': "Ha creato un nuovo tag",
         'user-activity-$name-edited-wiki-page': "Ha curato una pagina wiki",
         'user-activity-$name-joined-repo': "Si è unito a un progetto git",
         'user-activity-$name-left-repo': "Ha lasciato un progetto git",
@@ -663,6 +670,7 @@ module.exports = function(localeCode) {
         'user-statistics-legend-push': "Push",
         'user-statistics-legend-repo': "Cambiamenti del repository",
         'user-statistics-legend-survey': "Sondaggi",
+        'user-statistics-legend-tag': "Nuovi tag",
         'user-statistics-legend-task-list': "Elenchi di attività",
         'user-statistics-legend-wiki': "Modifiche wiki",
         'user-statistics-today': "Oggi",
@@ -695,6 +703,9 @@ module.exports = function(localeCode) {
         },
         'user-statistics-tooltip-$count-survey': (count) => {
             return (count === 1) ? `1 sondaggio` : `${count} sondaggi`;
+        },
+        'user-statistics-tooltip-$count-tag': (count) => {
+            return `${count} tag`;
         },
         'user-statistics-tooltip-$count-task-list': (count) => {
             return (count === 1) ? `1 elenco di attività` : `${count} elenchi di attività`;

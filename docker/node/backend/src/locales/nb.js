@@ -53,7 +53,7 @@ module.exports = function(localeCode) {
         'bookmark-$name-recommends-this': (name) => {
             return `${name} anbefaler dette`;
         },
-        'bookmark-$name1-and-$name2-recommend-this': (name) => {
+        'bookmark-$name1-and-$name2-recommend-this': (name1, name2) => {
             return `${name1} og ${name2} anbefaler dette`;
         },
         'bookmark-$you-bookmarked-it': 'Du har laget et bokmerke til dette',
@@ -210,7 +210,7 @@ module.exports = function(localeCode) {
             switch (story) {
                 case 'survey': story = 'en undersøkelse'; break;
                 case 'task-list': story = 'en oppgavelist'; break;
-                case 'post': story = 'et innlegg';
+                case 'post': story = 'et innlegg'; break;
                 default: story = 'en historie';
             }
             return `${name} sendte deg et bokmerke til ${story}`;
@@ -310,6 +310,9 @@ module.exports = function(localeCode) {
         },
         'reaction-$name-commented-on-push': (name) => {
             return `${name} kommenterte denne pushen`;
+        },
+        'reaction-$name-commented-on-tag': (name) => {
+            return `${name} kommenterte denne taggen`;
         },
         'reaction-$name-completed-a-task': (name) => {
             return `${name} fullførte en oppgave`;
@@ -431,6 +434,9 @@ module.exports = function(localeCode) {
                 text += ` “${repo}”`;
             }
             return text;
+        },
+        'story-$name-created-$tag-in-$repo': (name, tag, repo) => {
+            return `Skapte taggen “${tag}” i prosjektet “${repo}”`;
         },
         'story-$name-deleted-$page': (name, page) => {
             return `Fjernet wiki-siden “${page}”`;
@@ -579,6 +585,7 @@ module.exports = function(localeCode) {
         'user-activity-$name-created-merge-request': 'Opprettet en merge-request',
         'user-activity-$name-created-milestone': 'Opprettet en milepæl',
         'user-activity-$name-created-repo': 'Oprettet et git-prosjekt',
+        'user-activity-$name-created-tag': 'Opprettet en ny tagg',
         'user-activity-$name-edited-wiki-page': 'Redigert en wiki-side',
         'user-activity-$name-joined-repo': 'Ble med i et git-prosjekt',
         'user-activity-$name-left-repo': 'Dro et git-prosjek',
@@ -617,8 +624,8 @@ module.exports = function(localeCode) {
 
         'user-info-email': 'Epostadresse',
         'user-info-gender': 'Kjønn',
-        'user-info-gender-female': 'Kvinnelig',
-        'user-info-gender-male': 'Mannlig',
+        'user-info-gender-female': 'Kvinne',
+        'user-info-gender-male': 'Mann',
         'user-info-gender-unspecified': 'Uspesifisert',
         'user-info-name': 'Navn',
         'user-info-phone': 'Telefonnummer',
@@ -633,6 +640,7 @@ module.exports = function(localeCode) {
         'user-statistics-legend-push': 'Pusher',
         'user-statistics-legend-repo': 'Repo endringer',
         'user-statistics-legend-survey': 'Undersøkelser',
+        'user-statistics-legend-tag': 'Nye tagger',
         'user-statistics-legend-task-list': 'Oppgavelister',
         'user-statistics-legend-wiki': 'Wiki redigeringer',
         'user-statistics-today': 'I dag',
@@ -665,6 +673,9 @@ module.exports = function(localeCode) {
         },
         'user-statistics-tooltip-$count-survey': (count) => {
             return (count === 1) ? `1 undersøkelse` : `${count} undersøkelser`;
+        },
+        'user-statistics-tooltip-$count-tag': (count) => {
+            return (count === 1) ? `1 tagg` : `${count} tagger`;
         },
         'user-statistics-tooltip-$count-task-list': (count) => {
             return (count === 1) ? `1 oppgaveliste` : `${count} oppgavelister`;
