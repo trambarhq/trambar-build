@@ -5,27 +5,26 @@ var Shell = require('./lib/shell');
 
 var targetOS = (process.argv[2] || 'all').toLowerCase();
 var deployment = process.argv[3] || 'Development';
-var mandatory = false;
+var version = process.argv[4];
+
+if (!version) {
+    if (deployment !== 'Development') {
+        console.log('release-update <target-OS> <deployment> <target-version>');
+        console.log('\n\n');
+        console.log(`A target version must be supplied when deploying to ${deployment}`);
+    }
+}
+
 var appNames = {
     android: 'Trambar-Android',
     ios: 'Trambar-iOS',
 };
-if (process.argv[4]) {
-    if (process.argv[4] === 'mandatory' || process.argv[4] === 'm') {
-        mandatory = true;
-    } else {
-        console.log(`Unknown option: ${process.argv[4]}`);
-        process.exit(-1);
-    }
-} else if (deployment === 'Development') {
-    mandatory = true;
-}
 
 Shell.chdir(__dirname);
 Shell.chdir(`cordova/trambar`);
 [ 'android', 'ios' ].forEach((os) => {
     if (os === targetOS || targetOS === 'all') {
-        CodePush.release(appNames[os], os, deployment, (os === 'android') && mandatory);
+        CodePush.release(appNames[os], os, deployment, version);
     }
 });
 Shell.chdir(__dirname);
