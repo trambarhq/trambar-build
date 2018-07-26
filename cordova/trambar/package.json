@@ -37,7 +37,8 @@
     "cordova-windows": "^5.0.0",
     "phonegap-plugin-push": "^2.1.2",
     "simple-plist": "^0.2.1",
-    "uuid": "^3.2.1"
+    "uuid": "^3.2.1",
+    "cordova-plugin-file-transfer": "^1.7.1"
   },
   "cordova": {
     "plugins": {
@@ -68,7 +69,8 @@
       "cordova-plugin-background-upload": {},
       "cordova-android-support-gradle-release": {
         "ANDROID_SUPPORT_VERSION": "27.+"
-      }
+      },
+      "cordova-plugin-file-transfer": {}
     },
     "platforms": [
       "windows",

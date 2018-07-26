@@ -83,6 +83,15 @@ function attachResources(text, resources, address) {
  */
 function getURL(res, address) {
     var url = res.url;
+    if (res.type === 'video') {
+        // use transcoded version if it isn't MP4
+        if (res.format !== 'mp4') {
+            var version = _.maxBy(res.versions, 'bitrates.video') ;
+            if (version) {
+                url += `.${version.name}.${version.format}`;
+            }
+        }
+    }
     if (!url)  {
         return '';
     }

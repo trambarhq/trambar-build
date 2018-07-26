@@ -140,6 +140,7 @@ services:
     image: trambar-node-dev
     volumes:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../../trambar/client/src/locales:/opt/trambar/backend/src/locales
       - ../../../trambar/common/src:/opt/trambar/common/src
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
@@ -188,8 +189,9 @@ services:
     image: trambar-node-dev
     volumes:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../../trambar/client/src/locales:/opt/trambar/backend/src/locales
       - ../../../trambar/common/src:/opt/trambar/common/src
-      - /home/cleong/Desktop/git-cache:/var/cache/gitlab
+      - /var/cache/git-cache:/var/cache/gitlab
     environment:
       - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development

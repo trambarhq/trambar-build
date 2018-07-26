@@ -152,7 +152,6 @@ function handleServerChangeEvent(db, event) {
     var criteria = {
         id: event.id,
         type: 'gitlab',
-        deleted: false,
     };
     return Server.findOne(db, 'global', criteria, '*').then((server) => {
         if (event.diff.settings) {
@@ -627,9 +626,11 @@ function reimportUsers() {
         disabled: false,
     };
     return Server.find(db, 'global', criteria, '*').each((server) => {
-        return taskQueue.schedule(`reimport_user:${server.id}`, () => {
-            return UserImporter.importUsers(db, server);
-        });
+        if (hasAccessToken(server)) {
+            return taskQueue.schedule(`reimport_user:${server.id}`, () => {
+                return UserImporter.importUsers(db, server);
+            });
+        }
     });
 }
 
@@ -643,7 +644,7 @@ function reimportUsers() {
 function hasAccessToken(server) {
     var accessToken = _.get(server, 'settings.api.access_token');
     var oauthBaseURL = _.get(server, 'settings.oauth.base_url');
-    return (accessToken && oauthBaseURL);
+    return !!(accessToken && oauthBaseURL);
 }
 
 /**

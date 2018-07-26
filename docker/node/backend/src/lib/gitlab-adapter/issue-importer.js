@@ -1,6 +1,7 @@
 var _ = require('lodash');
 var Promise = require('bluebird');
 var Moment = require('moment');
+var Localization = require('localization');
 var TagScanner = require('utils/tag-scanner');
 var ExternalDataUtils = require('objects/utils/external-data-utils');
 
@@ -116,7 +117,6 @@ function importHookEvent(db, system, server, repo, project, author, glHookEvent)
                 if (!story) {
                     return null;
                 }
-                console.log('Deleting ', story);
                 var storyAfter = { id: story.id, deleted: true };
                 return Story.saveOne(db, schema, storyAfter).then((story) => {
                     return null;
@@ -154,7 +154,7 @@ function copyIssueProperties(story, system, server, repo, author, assignments, g
         return `#${_.replace(label, /\s+/g, '-')}`;
     });
     var tags = _.union(descriptionTags, labelTags);
-    var defLangCode = _.get(system, [ 'settings', 'input_languages', 0 ]);
+    var langCode = Localization.getDefaultLanguageCode(system);
 
     var storyAfter = _.cloneDeep(story) || {};
     ExternalDataUtils.inheritLink(storyAfter, server, repo, {
@@ -173,16 +173,19 @@ function copyIssueProperties(story, system, server, repo, author, assignments, g
         overwrite: 'always',
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'language_codes', {
-        value: [ defLangCode ],
+        value: [ langCode ],
         overwrite: 'always',
+        ignore: exported,
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
         value: [ author.id ],
         overwrite: 'always',
+        ignore: exported,
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'role_ids', {
         value: author.role_ids,
         overwrite: 'always',
+        ignore: exported,
     });
     ExternalDataUtils.importProperty(storyAfter, server, 'details.title', {
         value: glIssue.title,
