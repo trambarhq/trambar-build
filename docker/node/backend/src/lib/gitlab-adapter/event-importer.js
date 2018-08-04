@@ -8,6 +8,7 @@ var Transport = require('gitlab-adapter/transport');
 var IssueImporter = require('gitlab-adapter/issue-importer');
 var MergeRequestImporter = require('gitlab-adapter/merge-request-importer');
 var MilestoneImporter = require('gitlab-adapter/milestone-importer');
+var BranchImporter = require('gitlab-adapter/branch-importer');
 var PushImporter = require('gitlab-adapter/push-importer');
 var RepoImporter = require('gitlab-adapter/repo-importer');
 var UserImporter = require('gitlab-adapter/user-importer');
@@ -87,10 +88,12 @@ function importEvents(db, system, server, repo, project, glHookEvent) {
                     denom = firstEventAge;
                 }
                 taskLog.report(nom, denom, { added, last_event_time: ctime });
+            }).catch((err) => {
             });
         }).tap(() => {
             taskLog.finish();
         }).tapCatch((err) => {
+            console.error(err);
             taskLog.abort(err);
         });
     });
@@ -168,9 +171,14 @@ function getEventImporter(glEvent) {
 
     var actionName = normalizeToken(glEvent.action_name);
     switch (actionName) {
-        case 'deleted':
         case 'created':
         case 'imported': return RepoImporter;
+        case 'deleted':
+            if (glEvent.push_data || glEvent.data) {
+                return BranchImporter;
+            } else {
+                return RepoImporter;
+            }
         case 'joined':
         case 'left': return UserImporter;
         case 'pushed_new':
