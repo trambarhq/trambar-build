@@ -25,11 +25,17 @@ if (Folder.exists(wf)) {
     Git.checkout(branch, { force: true });
 }
 
+if (part === 'admin' || part === 'client' || part === 'all') {
+    Shell.chdir(`${wf}/common`);
+    Shell.run('npm ci');
+    Shell.chdir(__dirname);
+}
+
 if (part === 'admin' || part === 'all') {
     // rebuild client-side JS code
     Folder.create(`${wf}/admin/www`);
     Shell.chdir(`${wf}/admin`);
-    Shell.run('npm install');
+    Shell.run('npm ci');
     Shell.run('npm run build');
     Shell.chdir(__dirname);
 
@@ -41,7 +47,7 @@ if (part === 'client' || part === 'all') {
     Folder.create(`${wf}/client/www`);
     Folder.create(`${wf}/client/www-cordova`);
     Shell.chdir(`${wf}/client`);
-    Shell.run('npm install');
+    Shell.run('npm ci');
     Shell.run('npm run build');
     Shell.run('npm run build cordova');
     Shell.chdir(__dirname);
@@ -53,7 +59,7 @@ if (part === 'client' || part === 'all') {
 } else if (part === 'cordova') {
     Folder.create(`${wf}/client/www-cordova`);
     Shell.chdir(`${wf}/client`);
-    Shell.run('npm install');
+    Shell.run('npm ci');
     Shell.run('npm run build cordova');
     Shell.chdir(__dirname);
     Folder.copy(`${wf}/client/www-cordova`, 'cordova/trambar/www');

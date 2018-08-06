@@ -385,7 +385,12 @@ module.exports = React.createClass({
                 type = 'wns';
             }
         }
-        this.setState({ registrationId: id, registrationType: type });
+        isDebugMode().then((debug) => {
+            if (type === 'apns' && debug) {
+                type += '-sb';  // use sandbox
+            }
+            this.setState({ registrationId: id, registrationType: type });
+        });
     },
 
     /**
@@ -605,4 +610,18 @@ function setApplicationIconBadgeNumber(count) {
             pushNotification.setApplicationIconBadgeNumber(success, failure, count);
         }
     }
+}
+
+function isDebugMode() {
+    return new Promise((resolve, reject) => {
+        try {
+            cordova.plugins.IsDebug.getIsDebug((isDebug) => {
+                resolve(isDebug);
+            }, (err) => {
+                resolve(false);
+            });
+        } catch (err) {
+            resolve(false);
+        }
+    });
 }

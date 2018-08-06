@@ -1,4 +1,4 @@
-webpackJsonp(["diff"],{"../node_modules/diff/dist/diff.js":function(e,n,t){/*!
+webpackJsonp(["diff"],{"../../common/node_modules/diff/dist/diff.js":function(e,n,t){/*!
 
  diff v3.5.0
 
