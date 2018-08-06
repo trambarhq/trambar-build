@@ -23,7 +23,9 @@
     "cordova-plugin-device": "^2.0.1",
     "cordova-plugin-dialogs": "^2.0.1",
     "cordova-plugin-file": "^6.0.1",
+    "cordova-plugin-file-transfer": "^1.7.1",
     "cordova-plugin-ios-camera-permissions": "^1.2.0",
+    "cordova-plugin-is-debug": "^1.0.0",
     "cordova-plugin-media-capture": "^3.0.1",
     "cordova-plugin-network-information": "^2.0.1",
     "cordova-plugin-qrscanner": "^2.5.0",
@@ -37,8 +39,7 @@
     "cordova-windows": "^5.0.0",
     "phonegap-plugin-push": "^2.1.2",
     "simple-plist": "^0.2.1",
-    "uuid": "^3.2.1",
-    "cordova-plugin-file-transfer": "^1.7.1"
+    "uuid": "^3.2.1"
   },
   "cordova": {
     "plugins": {
@@ -70,7 +71,8 @@
       "cordova-android-support-gradle-release": {
         "ANDROID_SUPPORT_VERSION": "27.+"
       },
-      "cordova-plugin-file-transfer": {}
+      "cordova-plugin-file-transfer": {},
+      "cordova-plugin-is-debug": {}
     },
     "platforms": [
       "windows",
