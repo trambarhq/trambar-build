@@ -71,4 +71,7 @@ if (part === 'backend' || part === 'all') {
     Folder.copy(`${wf}/client/src/locales`, 'docker/node/backend/src/locales');
     Folder.copy(`${wf}/common`, 'docker/node/common');
     File.copy(`${wf}/backend/package.json`, 'docker/node/package.json');
+    File.copy(`${wf}/backend/package-lock.json`, 'docker/node/package-lock.json');
+    File.copy(`${wf}/backend/package.json`, 'docker/node-dev/package.json');
+    File.copy(`${wf}/backend/package-lock.json`, 'docker/node-dev/package-lock.json');
 }
