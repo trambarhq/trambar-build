@@ -43,6 +43,12 @@
   },
   "cordova": {
     "plugins": {
+      "cordova-plugin-ios-camera-permissions": {
+        "CAMERA_USAGE_DESCRIPTION": "The camera is used to scan QR codes and take pictures that you can share with your colleagues.",
+        "MICROPHONE_USAGE_DESCRIPTION": "The microphone is used when recording audio and video clips.",
+        "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "For saving pictures you've taken inside the app.",
+        "PHOTOLIBRARY_USAGE_DESCRIPTION": "For sharing photos and videos with your colleagues."
+      },
       "cordova-plugin-whitelist": {},
       "cordova-plugin-splashscreen": {},
       "cordova-plugin-media-capture": {},
@@ -60,12 +66,6 @@
       "cordova-plugin-video-editor": {},
       "cordova-plugin-code-push": {},
       "cordova-plugin-zip": {},
-      "cordova-plugin-ios-camera-permissions": {
-        "CAMERA_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues",
-        "MICROPHONE_USAGE_DESCRIPTION": "Users can share videos with their colleagues",
-        "PHOTOLIBRARY_ADD_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues",
-        "PHOTOLIBRARY_USAGE_DESCRIPTION": "Users can share photos and videos with their colleagues"
-      },
       "cordova-plugin-add-swift-support": {},
       "cordova-plugin-background-upload": {},
       "cordova-android-support-gradle-release": {
