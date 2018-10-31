@@ -9,6 +9,7 @@ var repo = 'git@github.com:chung-leong/trambar.git';
 var wf = 'codebase';
 
 var part = process.argv[2] || 'all';
+var parts = [ 'admin', 'client', 'backend', 'common' ];
 
 // update or create working folder
 Shell.chdir(__dirname);
@@ -24,6 +25,21 @@ if (Folder.exists(wf)) {
     Git.clone(repo, wf);
     Git.checkout(branch, { force: true });
 }
+
+var existingVersion = File.readText('VERSION').trim();
+var newVersion;
+parts.forEach((part) => {
+    var path = `./${wf}/${part}/package.json`;
+    var pkg = File.readJSON(path);
+    if (!newVersion) {
+        newVersion = pkg.version;
+    } else {
+        if (newVersion !== pkg.version) {
+            console.log(`Version mismatch: ${part}`);
+            process.exit(-1);
+        }
+    }
+});
 
 if (part === 'admin' || part === 'client' || part === 'all') {
     Shell.chdir(`${wf}/common`);
@@ -74,4 +90,10 @@ if (part === 'backend' || part === 'all') {
     File.copy(`${wf}/backend/package-lock.json`, 'docker/node/package-lock.json');
     File.copy(`${wf}/backend/package.json`, 'docker/node-dev/package.json');
     File.copy(`${wf}/backend/package-lock.json`, 'docker/node-dev/package-lock.json');
+}
+
+if (newVersion === existingVersion) {
+    console.log(`Warning: Version number has not been updated in source code`);
+} else {
+    File.writeText('VERSION', newVersion);
 }
