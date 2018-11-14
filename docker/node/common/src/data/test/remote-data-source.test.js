@@ -1,59 +1,49 @@
-var _ = require('lodash');
-var Promise = require('bluebird');
-var Moment = require('moment');
-var React = require('react');
-var Chai = require('chai'), expect = Chai.expect;
-var Enzyme = require('enzyme');
+import _ from 'lodash';
+import Promise from 'bluebird';
+import Moment from 'moment';
+import Chai, { expect } from 'chai';
+import ChaiAsPromised from 'chai-as-promised';
+import ManualPromise from 'utils/manual-promise';
 
-var RemoteDataSource = require('data/remote-data-source');
-var IndexedDBCache = require('data/indexed-db-cache');
-var HTTPRequest = require('transport/http-request');
-var HTTPError = require('errors/http-error');
+Chai.use(ChaiAsPromised);
+
+import RemoteDataSource from 'data/remote-data-source';
+import IndexedDBCache from 'data/indexed-db-cache';
+import * as HTTPRequest from 'transport/http-request';
+import HTTPError from 'errors/http-error';
 
 describe('RemoteDataSource', function() {
     before(function() {
         indexedDB.deleteDatabase('rds-test');
     })
-    var fetchOriginal = HTTPRequest.fetch;
+    let fetchOriginal = HTTPRequest.fetch;
     after(function() {
         HTTPRequest.fetch = fetchOriginal;
     })
 
-    var cacheWrapper = Enzyme.mount(<IndexedDBCache databaseName="rds-test"/>);
-    var cache = cacheWrapper.instance();
-    var dataSourceProps = {
+    let cache = new IndexedDBCache({ databaseName: 'rds-test' });
+    let dataSourceOptions = {
         discoveryFlags: {
         },
         retrievalFlags: {
         },
-        online: true,
-        inForeground: true,
         prefetching: false,
         sessionRetryInterval: 100,
-        cache: cache,
         cacheValidation: false,
-
-        onChange: null,
-        onSearch: null,
-        onAuthorization: null,
-        onExpiration: null,
-        onViolation: null,
-        onStupefaction: null,
+        cache,
     };
-    var dataSourceWrapper = Enzyme.mount(<RemoteDataSource {...dataSourceProps} />);
-    var dataSource = dataSourceWrapper.instance();
-
-    // restore props to default values after each test
-    afterEach(function() {
-        dataSourceWrapper.setProps(dataSourceProps);
+    let dataSource = new RemoteDataSource(dataSourceOptions);
+    dataSource.activate();
+    afterEach(() => {
+        dataSource.listeners = [];
     })
 
     describe('#beginSession()', function() {
         it('should initiate a session', function() {
-            var location = { address: 'http://mordor.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
+            let location = { address: 'http://mordor.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     expect(method).to.match(/post/i);
@@ -62,62 +52,40 @@ describe('RemoteDataSource', function() {
                     return { session, system, servers };
                 });
             };
-            dataSource.beginSession(location, 'client').then((result) => {
-                expect(result).to.have.property('system', system);
-                expect(result).to.have.property('servers', servers);
+            return dataSource.beginSession(location, 'client').then((result) => {
+                expect(result).to.have.property('system').that.deep.equals(system);
+                expect(result).to.have.property('servers').that.deep.equals(servers);
             });
         })
         it('should return a fulfilled promise when session was created already', function() {
-            var location = { address: 'http://rohan.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
+            let location = { address: 'http://rohan.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     return { session, system, servers };
                 });
             };
             return dataSource.beginSession(location, 'client').then((result) => {
-                var promise = dataSource.beginSession(location, 'client');
+                let promise = dataSource.beginSession(location, 'client');
                 expect(promise.isFulfilled()).to.be.true;
             });
         })
-        it('should trigger onChange after failing', function() {
-            var onChangePromise = new ManualPromise;
-            dataSourceWrapper.setProps({
-                onChange: onChangePromise.resolve
-            });
-            var location = { address: 'http://gondor.me' };
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.reject(new Error('boo'));
-            };
-            return dataSource.beginSession(location, 'client').then(() => {
-                return false;
-            }).catch((err) => {
-                return true;
-            }).then((rejected) => {
-                expect(rejected).to.be.true;
-                return onChangePromise.timeout(1000);
-            }).then((evt) => {
-                expect(evt).to.be.object;
-            });
-        })
     })
-    describe('#checkSession()', function() {
-        it('should fire onAuthorization when remote server indicates session is authorized', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onAuthorization: (evt) => { event = evt }
-            });
-            var location = { address: 'http://isengard.me' };
-            var session = { handle: 'abcdefg' };
-            var sessionLater = {
+    describe('#checkAuthorization()', function() {
+        it('should fire authorization event when remote server indicates session is authorized', function() {
+            let authorizationEventPromise = new ManualPromise;
+            dataSource.addEventListener('authorization', authorizationEventPromise.resolve);
+            let location = { address: 'http://isengard.me' };
+            let session = { handle: 'abcdefg' };
+            let sessionLater = {
                 token: '123456789',
                 user_id: 7,
                 etime: Moment().add(1, 'day').toISOString(),
             };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     return { session, system, servers };
@@ -132,26 +100,27 @@ describe('RemoteDataSource', function() {
                         return { session: sessionLater };
                     });
                 };
-                return dataSource.checkSession(location).then((authorized) => {
+                return dataSource.checkAuthorization(location).then((authorized) => {
                     expect(authorized).to.be.true;
                     expect(dataSource.hasAuthorization(location)).to.be.true;
-                    expect(event).to.have.property('session');
-                    expect(event.session).to.have.property('token');
-                    expect(event.session).to.have.property('user_id');
-                    expect(event.session).to.have.property('etime');
+                    return authorizationEventPromise.timeout(1000);
+                }).then((evt) => {
+                    expect(evt).to.have.property('session');
+                    expect(evt.session).to.have.property('token');
+                    expect(evt.session).to.have.property('user_id');
+                    expect(evt.session).to.have.property('etime');
                 });
             });
         })
         it('should simply return false when session is not authorized', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onExpiration: (evt) => { event = evt },
-                onViolation: (evt) => { event = evt },
-            });
-            var location = { address: 'http://dunland.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
+            let expirationEventPromise = new ManualPromise;
+            let violationEventPromise = new ManualPromise;
+            dataSource.addEventListener('expiration', expirationEventPromise.resolve);
+            dataSource.addEventListener('violation', violationEventPromise.resolve);
+            let location = { address: 'http://dunland.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     return { session, system, servers };
@@ -164,31 +133,32 @@ describe('RemoteDataSource', function() {
                         return {};
                     });
                 };
-                return dataSource.checkSession(location).then((authorized) => {
+                return dataSource.checkAuthorization(location).then((authorized) => {
                     expect(dataSource.hasAuthorization(location)).to.be.false;
                     expect(authorized).to.be.false;
-                    expect(event).to.be.null;
+
+                    // shouldn't trigger event
+                    return expect(Promise.race([ expirationEventPromise, violationEventPromise ]).timeout(200))
+                        .to.eventually.be.rejectedWith(Promise.TimeoutError)
                 });
             });
         })
     })
-    describe('#submitPassword()', function() {
-        it('should trigger onAuthorization when server accepts username/password', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onAuthorization: (evt) => { event = evt }
-            });
-            var location = { address: 'http://mdoom.mordor.me' };
-            var session = { handle: 'abcdefg' };
-            var sessionLater = {
+    describe('#authenticate()', function() {
+        it('should trigger authorization event when server accepts username/password', function() {
+            let authorizationEventPromise = new ManualPromise;
+            dataSource.addEventListener('authorization', authorizationEventPromise.resolve);
+            let location = { address: 'http://mdoom.mordor.me' };
+            let session = { handle: 'abcdefg' };
+            let sessionLater = {
                 token: '123456789',
                 user_id: 3,
                 etime: Moment().add(1, 'day').toISOString(),
             };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
-            var username = 'frodo';
-            var password = 'precious';
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
+            let username = 'frodo';
+            let password = 'precious';
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     return { session, system, servers };
@@ -205,30 +175,37 @@ describe('RemoteDataSource', function() {
                         return { session: sessionLater };
                     });
                 };
-                return dataSource.submitPassword(location, username, password).then(() => {
+                let credentials = {
+                    type: 'password',
+                    username,
+                    password
+                };
+                return dataSource.authenticate(location, credentials).then(() => {
                     expect(dataSource.hasAuthorization(location)).to.be.true;
-                    expect(event).to.have.property('session');
-                    expect(event.session).to.have.property('token');
-                    expect(event.session).to.have.property('user_id');
-                    expect(event.session).to.have.property('etime');
+                    return authorizationEventPromise;
+                }).then((evt) => {
+                    expect(evt).to.have.property('session');
+                    expect(evt.session).to.have.property('token');
+                    expect(evt.session).to.have.property('user_id');
+                    expect(evt.session).to.have.property('etime');
                 });
             });
         })
         it('should reject when username/password are wrong, with error object containing information sent by server', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt },
-                onExpiration: (evt) => { event = evt },
-                onViolation: (evt) => { event = evt },
-            });
-            var location = { address: 'http://rivendell.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
-            var username = 'frodo';
-            var password = 'precious';
-            var error = new HTTPError(401, {
-                message: 'You fool!',
+            let changeEventPromise = new ManualPromise;
+            let expirationEventPromise = new ManualPromise;
+            let violationEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            dataSource.addEventListener('expiration', expirationEventPromise.resolve);
+            dataSource.addEventListener('violation', violationEventPromise.resolve)
+            let location = { address: 'http://rivendell.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
+            let username = 'frodo';
+            let password = 'precious';
+            let error = new HTTPError(401, {
+                message: 'username/password are wrong',
                 reason: 'dark-magic',
             });
             HTTPRequest.fetch = (method, url, payload, options) => {
@@ -243,29 +220,34 @@ describe('RemoteDataSource', function() {
                         throw error;
                     });
                 };
-                return dataSource.submitPassword(location, username, password).catch((err) => {
-                    expect(dataSource.hasAuthorization(location)).to.be.false;
-                    return err;
-                }).then((err) => {
-                    expect(err).to.equal(error);
-                    expect(event).to.be.null;
-                });
+                let credentials = {
+                    type: 'password',
+                    username,
+                    password
+                };
+                return expect(dataSource.authenticate(location, credentials))
+                    .to.eventually.be.rejectedWith(Error)
+                    .that.has.property('reason', 'dark-magic');
+            }).then(() => {
+                let anyEventPromise = Promise.race([ changeEventPromise, expirationEventPromise, violationEventPromise ]).timeout(100);
+                return expect(anyEventPromise)
+                    .to.eventually.be.rejectedWith(Promise.TimeoutError);
             });
         })
-        it('should trigger onChange to restart session when failure is other than 401 Unauthorized', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt },
-                onExpiration: (evt) => { event = evt },
-                onViolation: (evt) => { event = evt },
-            });
-            var location = { address: 'http://rivendell.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
-            var username = 'frodo';
-            var password = 'precious';
-            var error = new HTTPError(404, {
+        it('should trigger change event to restart session when failure is other than 401 Unauthorized', function() {
+            let changeEventPromise = new ManualPromise;
+            let expirationEventPromise = new ManualPromise;
+            let violationEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            dataSource.addEventListener('expiration', expirationEventPromise.resolve);
+            dataSource.addEventListener('violation', violationEventPromise.resolve)
+            let location = { address: 'http://rivendell.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
+            let username = 'frodo';
+            let password = 'precious';
+            let error = new HTTPError(404, {
                 message: 'Session has disappeared!',
                 reason: 'one-ring',
             });
@@ -280,27 +262,29 @@ describe('RemoteDataSource', function() {
                         throw error;
                     });
                 };
-                return dataSource.submitPassword(location, username, password).catch((err) => {
-                    expect(event).to.have.property('type', 'change');
+                let credentials = {
+                    type: 'password',
+                    username,
+                    password
+                };
+                return expect(dataSource.authenticate(location, credentials))
+                    .to.eventually.be.rejected;
+            }).then(() => {
+                Promise.race([ changeEventPromise, expirationEventPromise, violationEventPromise ]).then((evt) => {
+                    expect(evt).to.have.property('type', 'change');
                 });
             });
         })
     })
     describe('#endSession()', function() {
         it('should end a session', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt },
-                onExpiration: (evt) => { event = evt },
-                onViolation: (evt) => { event = evt },
-            });
-            var location = { address: 'http://helms-deep.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
-            var username = 'frodo';
-            var password = 'precious';
-            var error = new HTTPError(404, {
+            let location = { address: 'http://helms-deep.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
+            let username = 'frodo';
+            let password = 'precious';
+            let error = new HTTPError(404, {
                 message: 'Session has disappeared!',
                 reason: 'one-ring',
             });
@@ -325,19 +309,13 @@ describe('RemoteDataSource', function() {
     })
     describe('#getOAuthURL()', function() {
         it('should return a URL for logging in through OAuth', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt },
-                onExpiration: (evt) => { event = evt },
-                onViolation: (evt) => { event = evt },
-            });
-            var location = { address: 'http://helms-deep.me' };
-            var session = { handle: 'abcdefg' };
-            var system = { details: { en: 'Test' } };
-            var servers = [ { id: 1, type: 'gitlab' } ];
-            var username = 'frodo';
-            var password = 'precious';
-            var error = new HTTPError(404, {
+            let location = { address: 'http://helms-deep.me' };
+            let session = { handle: 'abcdefg' };
+            let system = { details: { en: 'Test' } };
+            let servers = [ { id: 1, type: 'gitlab' } ];
+            let username = 'frodo';
+            let password = 'precious';
+            let error = new HTTPError(404, {
                 message: 'Session has disappeared!',
                 reason: 'one-ring',
             });
@@ -347,71 +325,79 @@ describe('RemoteDataSource', function() {
                 });
             };
             return dataSource.beginSession(location, 'client').then(() => {
-                var url1 = dataSource.getOAuthURL(location, servers[0]);
-                var url2 = dataSource.getOAuthURL(location, servers[0], 'test');
-                var url3 = dataSource.getOAuthURL(location, servers[0], 'activation');
+                let url1 = dataSource.getOAuthURL(location, servers[0]);
+                let url2 = dataSource.getOAuthURL(location, servers[0], 'test');
+                let url3 = dataSource.getOAuthURL(location, servers[0], 'activation');
                 expect(url1).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg');
                 expect(url2).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&test=1');
                 expect(url3).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&activation=1');
             });
         })
     })
-    describe('#restoreSession()', function() {
+    describe('#restoreAuthorization()', function() {
         it('should add a session', function() {
-            var session = {
+            let session = {
                 handle: 'abcdefg',
                 address: 'http://minas-tirith.me',
                 token: '123456789',
                 user_id: 3,
+                area: 'client',
                 etime: Moment().add(1, 'day').toISOString(),
             };
-            var location = { address: session.address };
+            let location = { address: session.address };
             expect(dataSource.hasAuthorization(location)).to.be.false;
-            dataSource.restoreSession(session);
+            let restored = dataSource.restoreAuthorization(location, session);
+            expect(restored).to.be.true;
             expect(dataSource.hasAuthorization(location)).to.be.true;
         })
         it('should not add an expired session', function() {
-            var session = {
+            let session = {
                 handle: 'abcdefg',
                 address: 'http://angmar.me',
                 token: '123456789',
                 user_id: 3,
+                area: 'client',
                 etime: Moment().subtract(1, 'day').toISOString(),
             };
-            var location = { address: session.address };
+            let location = { address: session.address };
             expect(dataSource.hasAuthorization(location)).to.be.false;
-            dataSource.restoreSession(session);
+            let restored = dataSource.restoreAuthorization(location, session);
+            expect(restored).to.be.false;
             expect(dataSource.hasAuthorization(location)).to.be.false;
         })
     })
     describe('#start()', function() {
         it('should return the user id', function() {
-            var session = {
+            let session = {
                 handle: 'abcdefg',
                 address: 'http://minas-tirith.me',
                 token: '123456789',
                 user_id: 3,
-                etime: Moment().subtract(1, 'day').toISOString(),
+                area: 'client',
+                etime: Moment().add(1, 'day').toISOString(),
             };
-            var location = { address: session.address, schema: 'global' };
-            dataSource.restoreSession(session);
-            return dataSource.start(location).then((userId) => {
-                expect(userId).to.equal(session.user_id);
-            });
+            let location = { address: session.address, schema: 'global' };
+            let restored = dataSource.restoreAuthorization(location, session);
+            expect(restored).to.be.true;
+            return dataSource.start(location).then((userID) => {
+                expect(userID).to.equal(session.user_id);
+            }).timeout(100);
         })
         it('should reject with 401 Unauthorized error when there is no session', function() {
-            var location = { address: 'http://minas-morgul.me', schema: 'global' };
+            dataSource.addEventListener('authentication', (evt) => {
+                evt.preventDefault();
+            });
+            let location = { address: 'http://minas-morgul.me', schema: 'global' };
             return dataSource.start(location).catch((err) => {
                 return err;
             }).then((err) => {
-                expect(err).to.be.an.instanceof(HTTPError);
                 expect(err).to.have.property('statusCode', 401);
-            });
+            }).timeout(100);
         })
     })
     describe('#find()', function() {
         it('should request objects from remote server', function() {
-            var query = {
+            let query = {
                 address: 'http://minas-tirith.me',
                 schema: 'global',
                 table: 'user',
@@ -419,11 +405,11 @@ describe('RemoteDataSource', function() {
                     id: 3
                 }
             };
-            var objects = [
+            let objects = [
                 { id: 3, gn: 2, username: 'frodo' }
             ]
-            var discovery = 0;
-            var retrieval = 0;
+            let discovery = 0;
+            let retrieval = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     expect(method).to.match(/post/i);
@@ -450,7 +436,7 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should reuse results from a previous search', function() {
-            var query = {
+            let query = {
                 address: 'http://minas-tirith.me',
                 schema: 'global',
                 table: 'user',
@@ -458,11 +444,11 @@ describe('RemoteDataSource', function() {
                     id: 1
                 }
             };
-            var objects = [
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf' }
             ]
-            var discovery = 0;
-            var retrieval = 0;
+            let discovery = 0;
+            let retrieval = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     expect(method).to.match(/post/i);
@@ -492,14 +478,14 @@ describe('RemoteDataSource', function() {
         })
         it('should return objects from cache without hitting remote server when the object count matches and the objects are retrieved recently', function() {
             // put objects into cache first
-            var location = { address: 'http://moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().toISOString();
-            var objects = [
+            let location = { address: 'http://moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
             return cache.save(location, objects).then(() => {
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
@@ -507,8 +493,8 @@ describe('RemoteDataSource', function() {
                         id: [ 1, 2 ]
                     }
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.try(() => {
                         expect(method).to.match(/post/i);
@@ -535,14 +521,14 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should return objects from cache then perform a server-side check when cached objects might be stale', function() {
-            var location = { address: 'http://level2.moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().subtract(1, 'day').toISOString();
-            var objects = [
+            let location = { address: 'http://level2.moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().subtract(1, 'day').toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
             return cache.save(location, objects).then(() => {
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
@@ -550,8 +536,8 @@ describe('RemoteDataSource', function() {
                         id: [ 1, 2 ]
                     }
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.try(() => {
                         if (/discovery/.test(url)) {
@@ -577,13 +563,11 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should update object whose gn has changed', function() {
-            var onChangePromise = new ManualPromise;
-            dataSourceWrapper.setProps({
-                onChange: onChangePromise.resolve
-            });
-            var location = { address: 'http://level3.moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().subtract(1, 'day').toISOString();
-            var objects = [
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level3.moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().subtract(1, 'day').toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
@@ -591,7 +575,7 @@ describe('RemoteDataSource', function() {
                 // bump gn
                 objects[1] = _.cloneDeep(objects[1]);
                 objects[1].gn++;
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
@@ -599,8 +583,8 @@ describe('RemoteDataSource', function() {
                         id: [ 1, 2 ]
                     }
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.delay(50).then(() => {
                         return Promise.try(() => {
@@ -628,8 +612,8 @@ describe('RemoteDataSource', function() {
                     expect(users[1]).to.have.property('id', objects[1].id);
                     expect(users[1]).to.have.property('gn', objects[1].gn - 1);
 
-                    // wait for onChange
-                    return onChangePromise.timeout(1000);
+                    // wait for change event
+                    return changeEventPromise.timeout(1000);
                 }).then(() => {
                     // second query should yield updated object
                     return dataSource.find(query).then((users) => {
@@ -642,26 +626,24 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should return objects from cache on an open-ended search, perform discovery, then conclude that the initial result set was correct', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt }
-            });
-            var location = { address: 'http://level4.moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().toISOString();
-            var objects = [
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level4.moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
             return cache.save(location, objects).then(() => {
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
                     criteria: {},
                     blocking: 'never',
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.delay(50).then(() => {
                         return Promise.try(() => {
@@ -688,32 +670,33 @@ describe('RemoteDataSource', function() {
                 }).then(() => {
                     expect(discovery).to.equal(1);
                     expect(retrieval).to.equal(0);
-                    expect(event).to.be.null;
+
+                    // no change event should be emitted
+                    return expect(changeEventPromise.timeout(500))
+                        .to.eventually.be.rejectedWith(Promise.TimeoutError);
                 });
             });
         })
         it('should return objects from cache, perform discovery, then retrieve an additional object', function() {
-            var onChangePromise = new ManualPromise;
-            dataSourceWrapper.setProps({
-                onChange: onChangePromise.resolve
-            });
-            var location = { address: 'http://level5.moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().toISOString();
-            var objects = [
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level5.moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
             return cache.save(location, objects).then(() => {
                 objects.push({ id: 3, gn: 1, username: 'sauron' });
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
                     criteria: {},
                     blocking: 'never'
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.delay(50).then(() => {
                         return Promise.try(() => {
@@ -736,8 +719,8 @@ describe('RemoteDataSource', function() {
                     expect(discovery).to.equal(0);
                     expect(retrieval).to.equal(0);
                     expect(users).to.have.property('length', 2);
-                    return onChangePromise.timeout(1000);
-                }).then(() => {
+                    return changeEventPromise.timeout(1000);
+                }).then((evt) => {
                     return dataSource.find(query).then((users) => {
                         expect(discovery).to.equal(1);
                         expect(retrieval).to.equal(1);
@@ -747,27 +730,25 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should not perform remote search when there is no connection', function() {
-            var onChangePromise = new ManualPromise;
-            dataSourceWrapper.setProps({
-                online: false,
-                onChange: onChangePromise.resolve,
-            });
-            var location = { address: 'http://level6.moria.me', schema: 'global', table: 'user' };
-            var rtime = Moment().toISOString();
-            var objects = [
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            dataSource.deactivate();
+            let location = { address: 'http://level6.moria.me', schema: 'global', table: 'user' };
+            let rtime = Moment().toISOString();
+            let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
             return cache.save(location, objects).then(() => {
                 objects.push({ id: 3, gn: 1, username: 'sauron' });
-                var query = {
+                let query = {
                     address: location.address,
                     schema: 'global',
                     table: 'user',
                     criteria: {}
                 };
-                var discovery = 0;
-                var retrieval = 0;
+                let discovery = 0;
+                let retrieval = 0;
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.delay(50).then(() => {
                         return Promise.try(() => {
@@ -790,24 +771,21 @@ describe('RemoteDataSource', function() {
                     expect(discovery).to.equal(0);
                     expect(retrieval).to.equal(0);
                     expect(users).to.have.property('length', 2);
-                    return onChangePromise.timeout(200);
-                }).catch((err) => {
-                    return err;
-                }).then((err) => {
-                    expect(err).to.be.instanceof(Promise.TimeoutError);
+                    return expect(changeEventPromise.timeout(200))
+                        .to.eventually.be.rejectedWith(Promise.TimeoutError);
                 });
+            }).finally(() => {
+                dataSource.activate();
             });
         })
     })
     describe('#save()', function() {
         it('should send an object to remote server and save result to cache', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt }
-            });
-            var location = { address: 'http://level1.misty-mountain.me', schema: 'global', table: 'project' };
-            var newObject = { name: 'anduril' };
-            var storage = 0, id = 1;
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level1.misty-mountain.me', schema: 'global', table: 'project' };
+            let newObject = { name: 'anduril' };
+            let storage = 0, id = 1;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -827,25 +805,26 @@ describe('RemoteDataSource', function() {
                 });
             };
             return dataSource.save(location, [ newObject ]).each((object) => {
-                expect(event).to.have.property('type', 'change');
                 return cache.find(location, { id: object.id }).then((objects) => {
                     expect(objects).to.have.length(1);
                 });
+            }).then(() => {
+                return changeEventPromise.timeout(1000);
+            }).then((evt) => {
+                expect(evt).to.have.property('type', 'change');
             });
         })
         it('should update an existing object', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt }
-            });
-            var location = { address: 'http://level2.misty-mountain.me', schema: 'global', table: 'project' };
-            var objects = [
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level2.misty-mountain.me', schema: 'global', table: 'project' };
+            let objects = [
                 { id: 3, name: 'smeagol' }
             ];
             return cache.save(location, objects).then(() => {
-                var storage = 0;
-                var discovery = 0;
-                var updatedObject = _.clone(objects[0]);
+                let storage = 0;
+                let discovery = 0;
+                let updatedObject = _.clone(objects[0]);
                 updatedObject.name = 'gollum';
                 HTTPRequest.fetch = (method, url, payload, options) => {
                     return Promise.delay(50).then(() => {
@@ -854,7 +833,7 @@ describe('RemoteDataSource', function() {
                                 storage++;
                                 expect(method).to.match(/post/i);
                                 expect(payload).to.have.property('objects').that.is.an.array;
-                                var object = _.clone(payload.objects[0]);
+                                let object = _.clone(payload.objects[0]);
                                 objects[0] = object;
                                 return [ object ];
                             } else if (/discovery/.test(url)) {
@@ -868,49 +847,38 @@ describe('RemoteDataSource', function() {
                     });
                 };
                 return dataSource.save(location, [ updatedObject ]).each((object) => {
-                    expect(event).to.have.property('type', 'change');
                     return cache.find(location, { id: object.id }).then((objects) => {
                         expect(objects).to.have.length(1);
                         expect(objects[0]).to.have.property('name', updatedObject.name);
                     });
+                }).then(() => {
+                    return changeEventPromise.timeout(1000);
+                }).then((evt) => {
+                    expect(evt).to.have.property('type', 'change');
                 });
             });
         })
         it('should make uncommitted objects available immediately when feature is on', function() {
-            var event = null;
-            var postSaveSearchHappened = new ManualPromise;
-            dataSourceWrapper.setProps({
-                discoveryFlags: {
-                    include_uncommitted: true
-                },
-                onChange: (evt) => {
-                    if (!postSaveSearchHappened.isResolved()) {
-                        var query = _.assign({ criteria: {} }, location);
-                        dataSource.find(query).then((projects) => {
-                            expect(projects).to.have.length(1);
-                            expect(projects[0]).to.have.property('id').that.is.below(1);
-                            postSaveSearchHappened.resolve();
-                        }).catch((err) => {
-                            postSaveSearchHappened.reject(err);
-                        });
-                    }
-                }
-            });
-            var location = { address: 'http://level3.misty-mountain.me', schema: 'global', table: 'project' };
-            var newObject = { name: 'anduril' };
-            var storage = 0, id = 1;
-            var discovery = 0;
-            var retrieval = 0;
-            var objects = []
+            dataSource.options.discoveryFlags = {
+                include_uncommitted: true
+            };
+            let location = { address: 'http://level3.misty-mountain.me', schema: 'global', table: 'project' };
+            let newObject = { name: 'anduril' };
+            let storage = 0, id = 1;
+            let discovery = 0;
+            let retrieval = 0;
+            let objects = []
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     if (/storage/.test(url)) {
                         storage++;
                         expect(method).to.match(/post/i);
                         expect(payload).to.have.property('objects').that.is.an.array;
-                        return postSaveSearchHappened.then(() => {
+
+                        // wait for the search
+                        return preSaveSearchPromise.then(() => {
                             // return the results only after we've done a search
-                            var object = _.clone(payload.objects[0]);
+                            let object = _.clone(payload.objects[0]);
                             object.id = id++;
                             object.gn = 1;
                             objects.push(object);
@@ -928,37 +896,64 @@ describe('RemoteDataSource', function() {
                     }
                 });
             };
-            return dataSource.save(location, [ newObject ]).each((object) => {
-                // this search should not trigger a remote search,
-                // since it's the same as the one performed in the
-                // onChange handler
-                return dataSource.find(location, {}).then((projects) => {
-                    expect(projects).to.have.length(1);
-                    expect(projects[0]).to.have.property('id').that.is.at.least(1);
+            // the logic here is a bit convoluted...
+            //
+            // 1. The first thing that happens is that we call save()
+            // 2. save() will place newObject into the change queue
+            // 3. save() then triggers a change event, which causes changeEventPromise
+            //    (below) to fulfill itself
+            // 4. at this point we run the query, which should yield newObject among
+            //    the results (the feature we're testing)
+            // 5. since save() would replace newObject with the saved version
+            //    we want our pseudo-server code above to block until we've
+            //    performed step 4, the reason why it waits for preSaveSearchPromise
+            // 6. once this happens, the pseudo-server code unblocks, and
+            //    HTTPRequest.fetch() returns
+            // 7. save() now has the object "returned by the server", which is
+            //    inserted into the cached query
+            // 8. save() returns and we can check the results from step 4 now
+            //    that we're inside the promise-chain given to Chai
+            // 9. then we run the query again and check that the result of step 7
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let preSaveSearchPromise = changeEventPromise.then((evt) => {
+                dataSource.removeEventListener('change', changeEventPromise.resolve);
+
+                // perform the query that should yield the object with temporary ID
+                let query = _.assign({ criteria: {} }, location);
+                return dataSource.find(query);
+            });
+            return dataSource.save(location, [ newObject ]).then((objects) => {
+                // the promise belong should fulfill immediately
+                return preSaveSearchPromise.then((projectsImmediately) => {
+                    // project should have a temporary ID
+                    expect(projectsImmediately).to.have.length(1);
+                    expect(projectsImmediately[0]).to.have.property('id').that.is.below(1);
+                });
+            }).then(() => {
+                // this search should not trigger a remote search, since it's
+                // the same as the one performed in the change event handler
+                return dataSource.find(location, {}).then((projectsLater) => {
+                    expect(projectsLater).to.have.length(1);
+                    expect(projectsLater[0]).to.have.property('id').that.is.at.least(1);
                     expect(discovery).to.equal(1);
                     expect(retrieval).to.equal(0);
                 });
             });
         })
         it('should block search on a table until saving is complete', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                discoveryFlags: {
-                    include_uncommitted: true
-                },
-            });
-            var location = { address: 'http://level4.misty-mountain.me', schema: 'global', table: 'project' };
-            var newObject = { name: 'anduril' };
-            var storage = 0, id = 1;
-            var discovery = 0;
-            var retrieval = 0;
-            var objects = [];
+            let location = { address: 'http://level4.misty-mountain.me', schema: 'global', table: 'project' };
+            let newObject = { name: 'anduril' };
+            let storage = 0, id = 1;
+            let discovery = 0;
+            let retrieval = 0;
+            let objects = [];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     if (/storage/.test(url)) {
                         storage++;
                         // make object available, then wait a bit
-                        var object = _.clone(payload.objects[0]);
+                        let object = _.clone(payload.objects[0]);
                         object.id = id++;
                         object.gn = 1;
                         objects.push(object);
@@ -986,43 +981,38 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should merge multiple deferred saves', function() {
-            var event = null;
-            var additionalSavePromises = [];
-            var additionalSavesTriggeredPromise = new ManualPromise;
-            dataSourceWrapper.setProps({
-                discoveryFlags: {
-                    include_uncommitted: true
-                },
-                onChange: () => {
-                    var num = additionalSavePromises.length + 1;
-                    if (num <= 4) {
-                        // load the only object and modify it
-                        var query = _.assign({ criteria: {} }, location);
-                        var promise = dataSource.find(query).get(0).then((object) => {
-                            // should still be uncommitted at this point
-                            expect(object).to.have.property('id').that.is.below(1);
-                            expect(object).to.have.property('uncommitted').that.is.true;
-                            object = _.clone(object);
-                            object['prop' + num] = num;
-                            return dataSource.save(location, [ object ], { delay: 200 });
-                        });
-                        additionalSavePromises.push(promise);
-                    } else {
-                        additionalSavesTriggeredPromise.resolve();
-                    }
+            let event = null;
+            let additionalSavePromises = [];
+            let additionalSavesTriggeredPromise = new ManualPromise;
+            dataSource.addEventListener('change', () => {
+                let num = additionalSavePromises.length + 1;
+                if (num <= 4) {
+                    // load the only object and modify it
+                    let query = _.assign({ criteria: {} }, location);
+                    let promise = dataSource.find(query).get(0).then((object) => {
+                        // should still be uncommitted at this point
+                        expect(object).to.have.property('id').that.is.below(1);
+                        expect(object).to.have.property('uncommitted').that.is.true;
+                        object = _.clone(object);
+                        object['prop' + num] = num;
+                        return dataSource.save(location, [ object ], { delay: 200 });
+                    });
+                    additionalSavePromises.push(promise);
+                } else {
+                    additionalSavesTriggeredPromise.resolve();
                 }
             });
-            var location = { address: 'http://level5.misty-mountain.me', schema: 'global', table: 'project' };
-            var newObject = { name: 'anduril' };
-            var storage = 0, id = 1;
-            var discovery = 0;
-            var retrieval = 0;
-            var objects = [];
+            let location = { address: 'http://level5.misty-mountain.me', schema: 'global', table: 'project' };
+            let newObject = { name: 'anduril' };
+            let storage = 0, id = 1;
+            let discovery = 0;
+            let retrieval = 0;
+            let objects = [];
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.try(() => {
                     if (/storage/.test(url)) {
                         storage++;
-                        var object = _.clone(payload.objects[0]);
+                        let object = _.clone(payload.objects[0]);
                         object.id = id++;
                         object.gn = 1;
                         objects.push(object);
@@ -1054,7 +1044,7 @@ describe('RemoteDataSource', function() {
                 expect(results[1]).to.have.length(0);
                 expect(results[2]).to.have.length(0);
                 expect(results[3]).to.have.length(1);
-                var savedObject = results[3][0];
+                let savedObject = results[3][0];
                 expect(savedObject).to.have.property('id').that.is.at.least(1);
                 expect(savedObject).to.have.property('prop1', 1);
                 expect(savedObject).to.have.property('prop2', 2);
@@ -1063,11 +1053,11 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should save objects to local schema', function() {
-            var location = {
+            let location = {
                 schema: 'local',
                 table: 'bob'
             };
-            var newObject = {
+            let newObject = {
                 key: 'old',
                 details: {
                     age: 87
@@ -1083,13 +1073,11 @@ describe('RemoteDataSource', function() {
     })
     describe('#remove()', function() {
         it('should try to remove an object', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                onChange: (evt) => { event = evt }
-            });
-            var location = { address: 'http://level1.lonely-mountain.me', schema: 'global', table: 'project' };
-            var existingObject = { id: 1, name: 'smaug' };
-            var storage = 0;
+            let changeEventPromise = new ManualPromise;
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+            let location = { address: 'http://level1.lonely-mountain.me', schema: 'global', table: 'project' };
+            let existingObject = { id: 1, name: 'smaug' };
+            let storage = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1105,23 +1093,17 @@ describe('RemoteDataSource', function() {
                     });
                 });
             };
-            return dataSource.remove(location, [ existingObject ]).each((object) => {
-                expect(event).to.have.property('type', 'change');
+            return dataSource.remove(location, [ existingObject ]).then((objects) => {
                 expect(storage).to.equal(1);
+                return changeEventPromise.timeout(1000);
+            }).then((evt) => {
+                expect(evt).to.have.property('type', 'change');
             });
         })
         it('should keep a delete request in the change queue when there is no connection and send it when connection is restored', function() {
-            var event = null;
-            dataSourceWrapper.setProps({
-                discoveryFlags: {
-                    include_uncommitted: true
-                },
-                onChange: (evt) => { event = evt },
-            });
-
-            var location = { address: 'http://level2.lonely-mountain.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 1, gn: 2, name: 'smaug' } ];
-            var storage = 0;
+            let location = { address: 'http://level2.lonely-mountain.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 1, gn: 2, name: 'smaug' } ];
+            let storage = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1142,38 +1124,36 @@ describe('RemoteDataSource', function() {
                 });
             };
             // create a search first
-            var query = _.extend(location, { criteria: {} });
+            let query = _.extend(location, { criteria: {} });
             return dataSource.find(query).then((found) => {
                 expect(found).to.have.lengthOf(1);
 
-                // disable connection
-                dataSourceWrapper.setProps({ online: false });
+                // deactivate data source
+                dataSource.deactivate();
             }).then(() => {
                 // this call will stall
-                return dataSource.remove(location, [ objects[0] ]).timeout(100);
-            }).catch((err) => {
-                return err;
-            }).then((res) => {
-                expect(res).to.be.instanceOf(Promise.TimeoutError);
+                return expect(dataSource.remove(location, [ objects[0] ]).timeout(100))
+                    .to.eventually.be.rejectedWith(Promise.TimeoutError);
+            }).then(() => {
                 expect(storage).to.equal(0);
                 return dataSource.find(query).then((found) => {
                     // merging uncommitted delete into result
                     expect(found).to.have.lengthOf(0);
                 });
             }).then(() => {
-                // restore connection
-                dataSourceWrapper.setProps({ online: true });
+                // reactivate data source
+                dataSource.activate();
                 return null;
             }).delay(200).then(() => {
                 expect(storage).to.equal(1);
             });
         })
         it('should remove an object from local schema', function() {
-            var location = {
+            let location = {
                 schema: 'local',
                 table: 'bob'
             };
-            var newObject = {
+            let newObject = {
                 key: 'old',
                 details: {
                     age: 87
@@ -1191,9 +1171,9 @@ describe('RemoteDataSource', function() {
     })
     describe('#abandon()', function() {
         it('should make searches at a given server dirty', function() {
-            var location = { address: 'http://toilet.helms-deep.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 1, gn: 2, name: 'fart' } ];
-            var discovery = 0, retrieval = 0;
+            let location = { address: 'http://toilet.helms-deep.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 1, gn: 2, name: 'fart' } ];
+            let discovery = 0, retrieval = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1210,7 +1190,7 @@ describe('RemoteDataSource', function() {
                     });
                 });
             };
-            var query = _.extend(location, { blocking: 'expired', criteria: {} });
+            let query = _.extend(location, { blocking: 'expired', criteria: {} });
             return dataSource.find(query).then((found) => {
                 expect(found).to.have.lengthOf(1);
                 expect(discovery).to.equal(1);
@@ -1237,9 +1217,9 @@ describe('RemoteDataSource', function() {
     })
     describe('#invalidate()', function() {
         it('should flag searches as dirty based on change info', function() {
-            var location = { address: 'http://kitchen.helms-deep.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 1, gn: 2, name: 'milk' } ];
-            var discovery = 0, retrieval = 0;
+            let location = { address: 'http://kitchen.helms-deep.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 1, gn: 2, name: 'milk' } ];
+            let discovery = 0, retrieval = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1256,14 +1236,14 @@ describe('RemoteDataSource', function() {
                     });
                 });
             };
-            var query = _.extend(location, { criteria: {} });
+            let query = _.extend(location, { criteria: {} });
             return dataSource.find(query).then((found) => {
                 expect(found).to.have.lengthOf(1);
                 expect(discovery).to.equal(1);
                 expect(retrieval).to.equal(1);
             }).then(() => {
                 objects = [ { id: 1, gn: 3, name: 'cheese' } ];
-                var changes = [
+                let changes = [
                     {
                         address: location.address,
                         schema: 'global',
@@ -1274,16 +1254,14 @@ describe('RemoteDataSource', function() {
                 ];
                 return dataSource.invalidate(changes);
             }).then(() => {
-                var onChangePromise = new ManualPromise;
-                dataSourceWrapper.setProps({
-                    onChange: onChangePromise.resolve
-                });
+                let changeEventPromise = new ManualPromise;
+                dataSource.addEventListener('change', changeEventPromise.resolve);
 
                 return dataSource.find(query).then((found) => {
                     // the initial call to find() will return what we got before
-                    return onChangePromise;
-                }).then(() => {
-                    // a subsequent call triggered by onChange will actually find
+                    return changeEventPromise.timeout(1000);
+                }).then((evt) => {
+                    // a subsequent call triggered by change event will actually find
                     // the updated results
                     return dataSource.find(query).then((found) => {
                         expect(found[0]).to.have.property('gn', 3);
@@ -1303,7 +1281,7 @@ describe('RemoteDataSource', function() {
                     }
                 });
             };
-            var queries = [
+            let queries = [
                 { address: 'http://mirkwood.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
                 { address: 'http://mirkwood.me', schema: 'global', table: 'user', criteria: {}, blocking: true },
                 { address: 'http://mirkwood.me', schema: 'global', table: 'smerf', criteria: {}, blocking: true },
@@ -1314,18 +1292,18 @@ describe('RemoteDataSource', function() {
             }).then(() => {
                 return dataSource.invalidate();
             }).then(() => {
-                var searches = dataSource.recentSearchResults;
+                let searches = dataSource.recentSearchResults;
                 _.each(searches, (search) => {
                     expect(search.dirty).to.be.true;
                 });
             });
         })
         it('should trigger merging of remote changes', function() {
-            var location = { address: 'http://arnor.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 7, gn: 1, name: 'piglet' } ];
-            var changedObject = { id: 7, gn: 1, name: 'lizard' };
-            var onConflictCalled = false;
-            var onConflict = function(evt) {
+            let location = { address: 'http://arnor.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
+            let changedObject = { id: 7, gn: 1, name: 'lizard' };
+            let onConflictCalled = false;
+            let onConflict = function(evt) {
                 onConflictCalled = true;
                 expect(evt).to.have.property('type', 'conflict');
                 expect(evt).to.have.property('local');
@@ -1335,7 +1313,7 @@ describe('RemoteDataSource', function() {
                 // default reaction is to drop the change
                 evt.preventDefault();
             };
-            var discovery = 0, retrieval = 0, storage = 0;
+            let discovery = 0, retrieval = 0, storage = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1357,12 +1335,12 @@ describe('RemoteDataSource', function() {
                 });
             };
             // initiate a deferred save
-            var options = { delay: 500, onConflict };
-            var savePromise = dataSource.save(location, [ changedObject ], options);
+            let options = { delay: 500, onConflict };
+            let savePromise = dataSource.save(location, [ changedObject ], options);
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = [
+                let changes = [
                     {
                         address: location.address,
                         schema: 'global',
@@ -1383,10 +1361,10 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should force the abandonment of a change when onConflict is not set', function() {
-            var location = { address: 'http://esgaroth.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 7, gn: 1, name: 'piglet' } ];
-            var changedObject = { id: 7, gn: 1, name: 'lizard' };
-            var discovery = 0, retrieval = 0, storage = 0;
+            let location = { address: 'http://esgaroth.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
+            let changedObject = { id: 7, gn: 1, name: 'lizard' };
+            let discovery = 0, retrieval = 0, storage = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1407,12 +1385,12 @@ describe('RemoteDataSource', function() {
                 });
             };
             // initiate a deferred save
-            var options = { delay: 500 };
-            var savePromise = dataSource.save(location, [ changedObject ], options);
+            let options = { delay: 500 };
+            let savePromise = dataSource.save(location, [ changedObject ], options);
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = [
+                let changes = [
                     {
                         address: location.address,
                         schema: 'global',
@@ -1431,14 +1409,14 @@ describe('RemoteDataSource', function() {
             });
         })
         it('should force the abandonment of a change when onConflict does not call preventDefault', function() {
-            var location = { address: 'http://fangorn.me', schema: 'global', table: 'project' };
-            var objects = [ { id: 7, gn: 1, name: 'piglet' } ];
-            var changedObject = { id: 7, gn: 1, name: 'lizard' };
-            var onConflictCalled = false;
-            var onConflict = function(evt) {
+            let location = { address: 'http://fangorn.me', schema: 'global', table: 'project' };
+            let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
+            let changedObject = { id: 7, gn: 1, name: 'lizard' };
+            let onConflictCalled = false;
+            let onConflict = function(evt) {
                 onConflictCalled = true;
             };
-            var discovery = 0, retrieval = 0, storage = 0;
+            let discovery = 0, retrieval = 0, storage = 0;
             HTTPRequest.fetch = (method, url, payload, options) => {
                 return Promise.delay(50).then(() => {
                     return Promise.try(() => {
@@ -1459,12 +1437,12 @@ describe('RemoteDataSource', function() {
                 });
             };
             // initiate a deferred save
-            var options = { delay: 500, onConflict };
-            var savePromise = dataSource.save(location, [ changedObject ], options);
+            let options = { delay: 500, onConflict };
+            let savePromise = dataSource.save(location, [ changedObject ], options);
             return Promise.try(() => {
                 // simulate a change by someone else in the meantime
                 objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                var changes = [
+                let changes = [
                     {
                         address: location.address,
                         schema: 'global',
@@ -1486,12 +1464,3 @@ describe('RemoteDataSource', function() {
         })
     })
 })
-
-function ManualPromise() {
-    Promise.call(this, (resolve, reject) => {
-        this.resolve = resolve;
-        this.reject = reject;
-    });
-}
-
-ManualPromise.prototype = Object.create(Promise.prototype);

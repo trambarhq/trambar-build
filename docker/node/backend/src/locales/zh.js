@@ -6,39 +6,31 @@ require('moment').defineLocale('zh-mo', { parentLocale: 'zh-hk' });
 
 // remove white-spaces from relative time
 ['zh-cn', 'zh-hk', 'zh-tw'].forEach((locale) => {
-    var localeData = require('moment').localeData('zh-cn');
-    var relativeTime = localeData._relativeTime;
-    for (var key in relativeTime) {
-        var value = relativeTime[key];
+    let localeData = require('moment').localeData('zh-cn');
+    let relativeTime = localeData._relativeTime;
+    for (let key in relativeTime) {
+        let value = relativeTime[key];
         relativeTime[key] = value.replace(/\s+/g, '');
     }
 });
 
-module.exports = function(localeCode) {
-    var cantonese = false;
-    var traditional = false;
-    if (/\-(mo|hk)$/.test(localeCode)) {
-        cantonese = true;
-        traditional = true;
-    } else if (/\-(tw)$/.test(localeCode)) {
-        traditional = true;
-    }
-    if (traditional) {
-        if (cantonese) {
-            var merged = {};
-            for (var name in traditionalPhrases) {
+function chooseVariant(countryCode) {
+    switch (countryCode) {
+        case 'mo':
+        case 'hk':
+            let merged = {};
+            for (let name in traditionalPhrases) {
                 merged[name] = cantonesePhrases[name] || traditionalPhrases[name];
             }
             return merged
-        } else {
+        case 'tw':
             return traditionalPhrases;
-        }
-    } else {
-        return simplifiedPhrases;
+        default:
+            return simplifiedPhrases;
     }
-};
+}
 
-var traditionalPhrases = {
+let traditionalPhrases = {
     'action-contact-by-email': '用電子郵件聯繫',
     'action-contact-by-ichat': '用iChat聯繫',
     'action-contact-by-phone': '用電話聯繫',
@@ -57,16 +49,13 @@ var traditionalPhrases = {
     'activation-schema': '項目',
 
     'alert-$count-new-bookmarks': (count) => {
-        var num = cardinalT(count);
-        return `${num}張新書籤`;
+        return cardinalT(count, '一張新書籤');
     },
     'alert-$count-new-notifications': (count) => {
-        var num = cardinalT(count);
-        return `${num}個新通知`;
+        return cardinalT(count, '一個新通知');
     },
     'alert-$count-new-stories': (count) => {
-        var num = cardinalT(count);
-        return `${num}個新故事`;
+        return cardinalT(count, '一個新故事');
     },
 
     'app-component-close': '關閉',
@@ -82,12 +71,10 @@ var traditionalPhrases = {
     'audio-capture-stop': '停止',
 
     'bookmark-$count-other-users': (count) => {
-        var num = cardinalT(count);
-        return `另外${num}個人`;
+        return cardinalT(count, '另外一個人');
     },
     'bookmark-$count-users': (count) => {
-        var num = cardinalT(count);
-        return `${num}個人`;
+        return cardinalT(count, '一個人');
     },
     'bookmark-$name-recommends-this': (name) => {
         return `${name}推薦這個`;
@@ -139,7 +126,7 @@ var traditionalPhrases = {
     'issue-cancel': '取消',
     'issue-delete': '刪除',
     'issue-export-$names-posted-$photos-$videos-$audios': (names, photos, videos, audios) => {
-        var objects = [];
+        let objects = [];
         if (photos > 0) {
             objects.push('圖片');
         }
@@ -159,8 +146,7 @@ var traditionalPhrases = {
     'issue-title': '標題',
 
     'list-$count-more': (count) => {
-        var num = cardinalT(count);
-        return `重有${num}個⋯⋯`;
+        return cardinalT(count, '重有一個⋯⋯');
     },
 
     'media-close': '關閉',
@@ -307,14 +293,14 @@ var traditionalPhrases = {
     'option-remove-story': '刪除故事',
     'option-send-bookmarks': '發送書籤給其他人',
     'option-send-bookmarks-to-$count-users': (count) => {
-        var num = cardinalT(count);
-        return `發送書籤給${num}個人`;
+        return cardinalT(count, '發送書籤給一個人');
     },
     'option-show-media-preview': '顯示附件媒體',
     'option-show-text-preview': '顯示課文預覽',
-    'option-statistics-biweekly': '顯示過去十四天的活動',
-    'option-statistics-monthly': '顯示月度活動',
-    'option-statistics-to-date': '顯示迄今的活動',
+    'option-statistics-14-days': '顯示過去十四天的活動',
+    'option-statistics-biweekly': '顯示雙週的活動',
+    'option-statistics-monthly': '顯示每月的活動',
+    'option-statistics-to-date': '顯示至今的活動',
 
     'people-no-stories-found': '沒有找到匹配的故事',
     'people-no-stories-on-date': '那天沒有活動',
@@ -344,8 +330,9 @@ var traditionalPhrases = {
     'project-management-withdraw-request': '取消會員資格申請',
 
     'qr-scanner-cancel': '取消',
-    'qr-scanner-invalid-qr-code': '不正確的ＱＲ碼',
-    'qr-scanner-qr-code-found': '找到ＱＲ碼',
+    'qr-scanner-code-found': '找到ＱＲ碼',
+    'qr-scanner-code-invalid': '不正確的ＱＲ碼',
+    'qr-scanner-code-used': '過時的ＱＲ碼',
 
     'reaction-$name-added-story-to-issue-tracker': (name) => {
         return `${name}把這個貼文放到問題跟踪器上`;
@@ -469,8 +456,7 @@ var traditionalPhrases = {
     'statistics-pie': '餅圖',
 
     'story-$count-reactions': (count) => {
-        var num = cardinalT(count);
-        return `${num}個反應`;
+        return cardinalT(count, '一個反應');
     },
     'story-$name-created-$branch-in-$repo': (name, branch, repo) => {
         return `在《${repo}》數據庫中創建了《${branch}》分支`;
@@ -482,7 +468,7 @@ var traditionalPhrases = {
         return `建立了wiki頁面《${page}》”`;
     },
     'story-$name-created-$repo': (name, repo) => {
-        var text = `建立了`;
+        let text = `建立了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -496,7 +482,7 @@ var traditionalPhrases = {
         return `刪除了wiki頁面《${page}》”`;
     },
     'story-$name-deleted-$repo': (name, repo) => {
-        var text = `刪除了`;
+        let text = `刪除了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -504,7 +490,7 @@ var traditionalPhrases = {
         return text;
     },
     'story-$name-imported-$repo': (name, repo) => {
-        var text = `導入了`;
+        let text = `導入了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -512,7 +498,7 @@ var traditionalPhrases = {
         return text;
     },
     'story-$name-joined-$repo': (name, repo) => {
-        var text = `加入了`;
+        let text = `加入了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -520,7 +506,7 @@ var traditionalPhrases = {
         return text;
     },
     'story-$name-left-$repo': (name, repo) => {
-        var text = `離開了`;
+        let text = `離開了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -528,9 +514,9 @@ var traditionalPhrases = {
         return text;
     },
     'story-$name-merged-$branches-into-$branch-of-$repo': (name, branches, branch, repo) => {
-        var text = `將`;
+        let text = `將`;
         if (branches && branches.length > 0) {
-            var sources = branches.map((branch) => {
+            let sources = branches.map((branch) => {
                 return `《${branch}》`;
             });
             text += `${sources.join('、')}分支的代碼合併到`;
@@ -542,14 +528,14 @@ var traditionalPhrases = {
         return text;
     },
     'story-$name-opened-issue-$number-$title': (name, number, title) => {
-        var text = `開了問題${number}`;
+        let text = `開了問題${number}`;
         if (title) {
             text += `： ${title}`;
         }
         return text;
     },
     'story-$name-pushed-to-$branch-of-$repo': (name, branch, repo) => {
-        var text = `推了一些代碼修改入到`
+        let text = `推了一些代碼修改入到`
         if (repo) {
             text += `《${repo}》數據庫的`;
         }
@@ -566,8 +552,7 @@ var traditionalPhrases = {
     'story-add-remove-coauthor': '替代合著者',
     'story-audio': '音頻',
     'story-author-$count-others': (count) => {
-        var num = cardinalT(count);
-        return `另外${num}個人`;
+        return cardinalT(count, '另外一個人');
     },
     'story-author-$name1-and-$name2': (name1, name2) => {
         return [ name1, `和`, name2 ];
@@ -630,21 +615,20 @@ var traditionalPhrases = {
 
     'telephone-dialog-close': '關閉',
 
+    'time-$days-ago': (days) => {
+        return cardinal(days, '一天前');
+    },
     'time-$hours-ago': (hours) => {
-        var num = cardinal(hours);
-        return `${num}小時前`;
+        return cardinal(hours, '一小時前');
     },
     'time-$hr-ago': (hr) => {
-        var num = cardinal(hr);
-        return `${num}小時前`;
+        return cardinal(hr, '一小時前');
     },
     'time-$min-ago': (min) => {
-        var num = cardinal(min);
-        return `${num}分鐘前`;
+        return cardinal(hr, '一分鐘前');
     },
     'time-$minutes-ago': (minutes) => {
-        var num = cardinal(minutes);
-        return `${num}分鐘前`;
+        return cardinal(hr, '一分鐘前');
     },
     'time-just-now': '剛才',
     'time-yesterday': '昨天',
@@ -660,25 +644,23 @@ var traditionalPhrases = {
     'user-activity-$name-created-milestone': '建立了一個里程碑',
     'user-activity-$name-created-repo': '建立了一個git數據庫',
     'user-activity-$name-created-tag': '建立了一個標籤',
+    'user-activity-$name-deleted-repo': '刪除了數據庫',
     'user-activity-$name-edited-wiki-page': '編輯了一個wiki頁面',
+    'user-activity-$name-imported-repo': '導入了數據庫',
     'user-activity-$name-joined-repo': '加入了數據庫',
     'user-activity-$name-left-repo': '離開了數據庫',
     'user-activity-$name-merged-code': '合併了代碼',
     'user-activity-$name-posted-$count-audio-clips': (name, count) => {
-        var num = cardinalT(count);
-        return `新增了${num}個音頻剪輯`;
+        return cardinalT(count, '新增了一個音頻剪輯');
     },
     'user-activity-$name-posted-$count-links': (name, count) => {
-        var num = cardinalT(count);
-        return `新增了${num}個網頁鏈接`;
+        return cardinalT(count, '新增了一個網頁鏈接');
     },
     'user-activity-$name-posted-$count-pictures': (name, count) => {
-        var num = cardinalT(count);
-        return `新增了${num}張相片`;
+        return cardinalT(count, '新增了一張相片');
     },
     'user-activity-$name-posted-$count-video-clips': (name, count) => {
-        var num = cardinalT(count);
-        return `新增了${num}張影片`;
+        return cardinalT(count, '新增了一張影片');
     },
     'user-activity-$name-pushed-code': '將代碼推送到數據庫',
     'user-activity-$name-reported-issue': '報告了一個問題',
@@ -768,7 +750,7 @@ var traditionalPhrases = {
     'warning-no-connection': '無法即時更新',
 };
 
-var simplifiedPhrases = {
+let simplifiedPhrases = {
     'action-contact-by-email': '用电子邮件联系',
     'action-contact-by-ichat': '用iChat联系',
     'action-contact-by-phone': '用电话联系',
@@ -787,16 +769,13 @@ var simplifiedPhrases = {
     'activation-schema': '项目',
 
     'alert-$count-new-bookmarks': (count) => {
-        var num = cardinalS(count);
-        return `${num}张新书签`;
+        return cardinalS(count, '一张新书签');
     },
     'alert-$count-new-notifications': (count) => {
-        var num = cardinalS(count);
-        return `${num}个新通知`;
+        return cardinalS(count, '一个新通知');
     },
     'alert-$count-new-stories': (count) => {
-        var num = cardinalS(count);
-        return `${num}个新故事`;
+        return cardinalS(count, '一个新故事');
     },
 
     'app-component-close': '关闭',
@@ -812,12 +791,10 @@ var simplifiedPhrases = {
     'audio-capture-stop': '停止',
 
     'bookmark-$count-other-users': (count) => {
-        var num = cardinalS(count);
-        return `另外${num}个人`;
+        return cardinalS(count, '另外一个人');
     },
     'bookmark-$count-users': (count) => {
-        var num = cardinalS(count);
-        return `${num}个人`;
+        return cardinalS(count, '一个人');
     },
     'bookmark-$name-recommends-this': (name) => {
         return `${name}推荐这个`;
@@ -869,7 +846,7 @@ var simplifiedPhrases = {
     'issue-cancel': '取消',
     'issue-delete': '删除',
     'issue-export-$names-posted-$photos-$videos-$audios': (names, photos, videos, audios) => {
-        var objects = [];
+        let objects = [];
         if (photos > 0) {
             objects.push('图片');
         }
@@ -889,8 +866,7 @@ var simplifiedPhrases = {
     'issue-title': '标题',
 
     'list-$count-more': (count) => {
-        var num = cardinalS(count);
-        return `重有${num}个⋯⋯`;
+        return cardinalS(count, '重有一个⋯⋯');
     },
 
     'media-close': '关闭',
@@ -1037,14 +1013,14 @@ var simplifiedPhrases = {
     'option-remove-story': '删除故事',
     'option-send-bookmarks': '发送书签给其他人',
     'option-send-bookmarks-to-$count-users': (count) => {
-        var num = cardinalS(count);
-        return `发送书签给${num}个人`;
+        return cardinalS(count, '发送书签给一个人');
     },
     'option-show-media-preview': '显示附件媒体',
     'option-show-text-preview': '显示课文预览',
-    'option-statistics-biweekly': '显示过去十四天的活动',
-    'option-statistics-monthly': '显示月度活动',
-    'option-statistics-to-date': '显示迄今的活动',
+    'option-statistics-14-days': '显示过去十四天的活动',
+    'option-statistics-biweekly': '显示双周的活动',
+    'option-statistics-monthly': '显示每月的活动',
+    'option-statistics-to-date': '显示至今的活动',
 
     'people-no-stories-found': '没有找到匹配的故事',
     'people-no-stories-on-date': '那天没有活动',
@@ -1074,8 +1050,9 @@ var simplifiedPhrases = {
     'project-management-withdraw-request': '取消会员资格申请',
 
     'qr-scanner-cancel': '取消',
-    'qr-scanner-invalid-qr-code': '不正确的ＱＲ码',
-    'qr-scanner-qr-code-found': '找到QR码',
+    'qr-scanner-code-found': '找到QR码',
+    'qr-scanner-code-invalid': '不正确的ＱＲ码',
+    'qr-scanner-code-used': '过时的的ＱＲ码',
 
     'reaction-$name-added-story-to-issue-tracker': (name) => {
         return `${name}把这个贴文放到问题跟踪器上`;
@@ -1199,8 +1176,7 @@ var simplifiedPhrases = {
     'statistics-pie': '饼图',
 
     'story-$count-reactions': (count) => {
-        var num = cardinalS(count);
-        return `${num}个反应`;
+        return cardinalS(count, '一个反应');
     },
     'story-$name-created-$branch-in-$repo': (name, branch, repo) => {
         return `在《${repo}》数据库中创建了《${branch}》分支`;
@@ -1212,7 +1188,7 @@ var simplifiedPhrases = {
         return `建立了wiki页面《${page}》”`;
     },
     'story-$name-created-$repo': (name, repo) => {
-        var text = `建立了`;
+        let text = `建立了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1226,7 +1202,7 @@ var simplifiedPhrases = {
         return `删除了wiki页面《${page}》”`;
     },
     'story-$name-deleted-$repo': (name, repo) => {
-        var text = `删除了`;
+        let text = `删除了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1234,7 +1210,7 @@ var simplifiedPhrases = {
         return text;
     },
     'story-$name-imported-$repo': (name, repo) => {
-        var text = `导入了`;
+        let text = `导入了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1242,7 +1218,7 @@ var simplifiedPhrases = {
         return text;
     },
     'story-$name-joined-$repo': (name, repo) => {
-        var text = `加入了`;
+        let text = `加入了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1250,7 +1226,7 @@ var simplifiedPhrases = {
         return text;
     },
     'story-$name-left-$repo': (name, repo) => {
-        var text = `离开了`;
+        let text = `离开了`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1258,9 +1234,9 @@ var simplifiedPhrases = {
         return text;
     },
     'story-$name-merged-$branches-into-$branch-of-$repo': (name, branches, branch, repo) => {
-        var text = `将`;
+        let text = `将`;
         if (branches && branches.length > 0) {
-            var sources = branches.map((branch) => {
+            let sources = branches.map((branch) => {
                 return `《${branch}》`;
             });
             text += `${sources.join('、')}分支的代码合并到`;
@@ -1272,14 +1248,14 @@ var simplifiedPhrases = {
         return text;
     },
     'story-$name-opened-issue-$number-$title': (name, number, title) => {
-        var text = `开了问题${number}`;
+        let text = `开了问题${number}`;
         if (title) {
             text += `： ${title}`;
         }
         return text;
     },
     'story-$name-pushed-to-$branch-of-$repo': (name, branch, repo) => {
-        var text = `推了一些代码修改入到`
+        let text = `推了一些代码修改入到`
         if (repo) {
             text += `《${repo}》数据库的`;
         }
@@ -1296,8 +1272,7 @@ var simplifiedPhrases = {
     'story-add-remove-coauthor': '替代合著者',
     'story-audio': '音频',
     'story-author-$count-others': (count) => {
-        var num = cardinalS(count);
-        return `另外${num}个人`;
+        return cardinalS(count, '另外一个人');
     },
     'story-author-$name1-and-$name2': (name1, name2) => {
         return [ name1, `和`, name2 ];
@@ -1360,21 +1335,20 @@ var simplifiedPhrases = {
 
     'telephone-dialog-close': '关闭',
 
+    'time-$days-ago': (days) => {
+        return cardinal(days, '一天前');
+    },
     'time-$hours-ago': (hours) => {
-        var num = cardinal(hours);
-        return `${num}小时前`;
+        return cardinal(hours, '一小时前');
     },
     'time-$hr-ago': (hr) => {
-        var num = cardinal(hr);
-        return `${num}小时前`;
+        return cardinal(hr, '一小时前');
     },
     'time-$min-ago': (min) => {
-        var num = cardinal(min);
-        return `${num}分钟前`;
+        return cardinal(min, '一分钟前');
     },
     'time-$minutes-ago': (minutes) => {
-        var num = cardinal(minutes);
-        return `${num}分钟前`;
+        return cardinal(minutes, '一分钟前');
     },
     'time-just-now': '刚才',
     'time-yesterday': '昨天',
@@ -1390,25 +1364,23 @@ var simplifiedPhrases = {
     'user-activity-$name-created-milestone': '建立了一个里程碑',
     'user-activity-$name-created-repo': '建立了一个git数据库',
     'user-activity-$name-created-tag': '建立了一个标签',
+    'user-activity-$name-deleted-repo': '删除了数据库',
     'user-activity-$name-edited-wiki-page': '编辑了一个wiki页面',
+    'user-activity-$name-imported-repo': '导入了数据库',
     'user-activity-$name-joined-repo': '加入了数据库',
     'user-activity-$name-left-repo': '离开了数据库',
     'user-activity-$name-merged-code': '合并了代码',
     'user-activity-$name-posted-$count-audio-clips': (name, count) => {
-        var num = cardinalS(count);
-        return `新增了${num}个音频剪辑`;
+        return cardinalS(count, '新增了一个音频剪辑');
     },
     'user-activity-$name-posted-$count-links': (name, count) => {
-        var num = cardinalS(count);
-        return `新增了${num}个网页链接`;
+        return cardinalS(count, '新增了一个网页链接');
     },
     'user-activity-$name-posted-$count-pictures': (name, count) => {
-        var num = cardinalS(count);
-        return `新增了${num}张相片`;
+        return cardinalS(count, '新增了一张相片');
     },
     'user-activity-$name-posted-$count-video-clips': (name, count) => {
-        var num = cardinalS(count);
-        return `新增了${num}张影片`;
+        return cardinalS(count, '新增了一张影片');
     },
     'user-activity-$name-pushed-code': '将代码推送到数据库',
     'user-activity-$name-reported-issue': '报告了一个问题',
@@ -1498,7 +1470,7 @@ var simplifiedPhrases = {
     'warning-no-connection': '无法即时更新',
 };
 
-var cantonesePhrases = {
+let cantonesePhrases = {
     'action-view-github-page': '睇佢嘅GitHub網頁',
     'action-view-gitlab-page': '睇佢嘅GitLab網頁',
     'action-view-linkedin-page': '睇佢嘅LinkedIn網頁',
@@ -1630,11 +1602,11 @@ var cantonesePhrases = {
     'option-hide-story': '訪客用戶睇唔到',
     'option-send-bookmarks': '發送書籤俾其他人',
     'option-send-bookmarks-to-$count-users': (count) => {
-        var num = cardinalT(count);
-        return `發送書籤俾${num}個人`;
+        return cardinalT(count, '發送書籤俾一個人');
     },
-    'option-statistics-biweekly': '顯示前十四日嘅活動',
-    'option-statistics-monthly': '顯示呢個月嘅活動',
+    'option-statistics-14-days': '顯示前十四日嘅活動',
+    'option-statistics-biweekly': '顯示兩個禮拜嘅活動',
+    'option-statistics-monthly': '顯示每個月嘅活動',
     'option-statistics-to-date': '顯示直到今日嘅活動',
 
     'people-no-stories-found': '搵唔到配合嘅故事',
@@ -1649,8 +1621,9 @@ var cantonesePhrases = {
     'project-management-mobile-set-up': '手機設置',
     'project-management-sign-out-are-you-sure': '你確定你想從該服務器註銷？',
 
-    'qr-scanner-invalid-qr-code': '唔正確嘅ＱＲ碼',
-    'qr-scanner-qr-code-found': '搵找到ＱＲ碼',
+    'qr-scanner-code-invalid': '唔正確嘅ＱＲ碼',
+    'qr-scanner-code-found': '搵找到ＱＲ碼',
+    'qr-scanner-code-invalid': '過咗時嘅ＱＲ碼',
 
     'reaction-$name-added-story-to-issue-tracker': (name) => {
         return `${name}將呢個帖子放到問題跟踪器上`;
@@ -1714,7 +1687,7 @@ var cantonesePhrases = {
         return `建立咗wiki頁面《${page}》”`;
     },
     'story-$name-created-$repo': (name, repo) => {
-        var text = `建立咗`;
+        let text = `建立咗`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1728,7 +1701,7 @@ var cantonesePhrases = {
         return `刪除咗wiki頁面《${page}》”`;
     },
     'story-$name-deleted-$repo': (name, repo) => {
-        var text = `刪除咗`;
+        let text = `刪除咗`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1736,7 +1709,7 @@ var cantonesePhrases = {
         return text;
     },
     'story-$name-imported-$repo': (name, repo) => {
-        var text = `導入咗`;
+        let text = `導入咗`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1744,7 +1717,7 @@ var cantonesePhrases = {
         return text;
     },
     'story-$name-joined-$repo': (name, repo) => {
-        var text = `加入咗`;
+        let text = `加入咗`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1752,7 +1725,7 @@ var cantonesePhrases = {
         return text;
     },
     'story-$name-left-$repo': (name, repo) => {
-        var text = `離開咗`;
+        let text = `離開咗`;
         if (repo) {
             text += `《${repo}》`;
         }
@@ -1760,9 +1733,9 @@ var cantonesePhrases = {
         return text;
     },
     'story-$name-merged-$branches-into-$branch-of-$repo': (name, branches, branch, repo) => {
-        var text = `將`;
+        let text = `將`;
         if (branches && branches.length > 0) {
-            var sources = branches.map((branch) => {
+            let sources = branches.map((branch) => {
                 return `《${branch}》`;
             });
             text += `${sources.join('、')}分支嘅代碼合併到`;
@@ -1774,14 +1747,14 @@ var cantonesePhrases = {
         return text;
     },
     'story-$name-opened-issue-$number-$title': (name, number, title) => {
-        var text = `開咗問題${number}`;
+        let text = `開咗問題${number}`;
         if (title) {
             text += `： ${title}`;
         }
         return text;
     },
     'story-$name-pushed-to-$branch-of-$repo': (name, branch, repo) => {
-        var text = `推咗一啲代碼修改入到`
+        let text = `推咗一啲代碼修改入到`
         if (repo) {
             text += `《${repo}》數據庫嘅`;
         }
@@ -1831,13 +1804,14 @@ var cantonesePhrases = {
         return `上載（${progress}%）`;
     },
 
+    'time-$days-ago': (days) => {
+        return cardinal(days, '一日前');
+    },
     'time-$hours-ago': (hours) => {
-        var num = cardinal(hours);
-        return `${num}個鐘頭前`;
+        return cardinal(hours, '一個鐘頭前');
     },
     'time-$hr-ago': (hr) => {
-        var num = cardinal(hr);
-        return `${num}個鐘頭前`;
+        return cardinal(hr, '一個鐘頭前');
     },
     'time-just-now': '啱啱線',
     'time-yesterday': '尋日',
@@ -1850,25 +1824,23 @@ var cantonesePhrases = {
     'user-activity-$name-created-milestone': '建立咗一個里程碑',
     'user-activity-$name-created-repo': '建立咗一個git數據庫',
     'user-activity-$name-created-tag': '建立咗一個標籤',
+    'user-activity-$name-deleted-repo': '刪除咗數據庫',
     'user-activity-$name-edited-wiki-page': '編輯咗一個wiki頁面',
+    'user-activity-$name-imported-repo': '導入咗數據庫',
     'user-activity-$name-joined-repo': '加入咗數據庫',
     'user-activity-$name-left-repo': '離開咗數據庫',
     'user-activity-$name-merged-code': '合併咗一啲代碼',
     'user-activity-$name-posted-$count-audio-clips': (name, count) => {
-        var num = cardinalT(count);
-        return `新增咗${num}個音頻剪輯`;
+        return cardinalT(count, '新增咗一個音頻剪輯');
     },
     'user-activity-$name-posted-$count-links': (name, count) => {
-        var num = cardinalT(count);
-        return `新增咗${num}個網頁鏈接`;
+        return cardinalT(count, '新增咗一個網頁鏈接');
     },
     'user-activity-$name-posted-$count-pictures': (name, count) => {
-        var num = cardinalT(count);
-        return `新增咗${num}張相片`;
+        return cardinalT(count, '新增咗一張相片');
     },
     'user-activity-$name-posted-$count-video-clips': (name, count) => {
-        var num = cardinalT(count);
-        return `新增咗${num}張影片`;
+        return cardinalT(count, '新增咗一張影片');
     },
     'user-activity-$name-reported-issue': '報告咗一個問題',
     'user-activity-$name-started-survey': '發布咗一個調查',
@@ -1884,44 +1856,6 @@ var cantonesePhrases = {
     'warning-no-connection': '唔可以即時更新',
 };
 
-var chineseNumbers = [ '〇', '一', '二', '三', '四', '五', '六', '七', '八', '九' ];
-
-function cardinalT(num) {
-    return cardinal(num, true);
-}
-
-function cardinalS(num) {
-    return cardinal(num, false);
-}
-
-function cardinal(num, traditional) {
-    if (num === 2) {
-        return (traditional) ? '兩' : '两';
-    } else if (num < 10) {
-        return chineseNumbers[num];
-    } else if (num < 100) {
-        var text = '十';
-        var tens = Math.floor(num / 10);
-        var ones = Math.floor(num % 10);
-        if (tens > 1) {
-            text = chineseNumbers[tens] + text;
-        }
-        if (ones) {
-            text = text + chineseNumbers[ones];
-        }
-        return text;
-    } else {
-        return String(num);
-    }
-}
-
-function list(items) {
-    items = items.map((item) => {
-        return `${item}`;
-    });
-    if (items.length >= 2) {
-        var lastItem = items.pop();
-        items[items.length - 1] += `和${lastItem}`;
-    }
-    return items.join('，');
-}
+export {
+    chooseVariant as phrases
+};

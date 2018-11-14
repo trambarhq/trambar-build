@@ -1,4 +1,4 @@
-module.exports = exports = [
+const ServerTypes = [
     'dropbox',
     'facebook',
     'github',
@@ -7,6 +7,12 @@ module.exports = exports = [
     'windows',
 ];
 
-exports.integrated = [
+const IntegratedServerTypes = [
     'gitlab',
 ];
+
+export {
+    ServerTypes as default,
+    ServerTypes,
+    IntegratedServerTypes
+};

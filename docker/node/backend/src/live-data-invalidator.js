@@ -1,30 +1,25 @@
-var _ = require('lodash');
-var Promise = require('bluebird');
-var FS = require('fs');
-var Database = require('database');
-var Shutdown = require('shutdown');
+import _ from 'lodash';
+import Promise from 'bluebird';
+import FS from 'fs';
+import Database from 'database';
+import * as Shutdown from 'shutdown';
 
 // accessors
-var Statistics = require('accessors/statistics');
-var Listing = require('accessors/listing');
-var Story = require('accessors/story');
-
-module.exports = {
-    start,
-    stop,
-};
+import Statistics from 'accessors/statistics';
+import Listing from 'accessors/listing';
+import Story from 'accessors/story';
 
 // load available analysers
 var Analysers = _.filter(_.map(FS.readdirSync(`${__dirname}/lib/analysers`), (filename) => {
     if (/\.js$/.test(filename)) {
-        var module = require(`analysers/${filename}`);
+        var module = require(`analysers/${filename}`).default;
         return module;
     }
 }));
 // load available story raters
 var StoryRaters = _.filter(_.map(FS.readdirSync(`${__dirname}/lib/story-raters`), (filename) => {
     if (/\.js$/.test(filename)) {
-        var module = require(`story-raters/${filename}`);
+        var module = require(`story-raters/${filename}`).default;
         // certain ratings cannot be applied until the listing is being retrieved
         // (e.g. by retrieval time)
         if (module.calculation !== 'deferred') {
@@ -296,10 +291,6 @@ function findListingsImpactedByStatisticsChange(db, schema, events) {
     });
 }
 
-if (process.argv[1] === __filename) {
-    start();
-}
-
 /**
  * Extract the values of columns prior to a change from database change events.
  * Only columns provided to createNotificationTriggers() when the database
@@ -343,4 +334,12 @@ function extractPreviousValues(events, columns) {
     }));
 }
 
-Shutdown.on(stop);
+if (process.argv[1] === __filename) {
+    start();
+    Shutdown.on(stop);
+}
+
+export {
+    start,
+    stop,
+};

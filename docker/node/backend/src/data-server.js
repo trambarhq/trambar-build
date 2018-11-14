@@ -1,41 +1,36 @@
-var _ = require('lodash');
-var Promise = require('bluebird');
-var Express = require('express');
-var CORS = require('cors');
-var BodyParser = require('body-parser');
-var Moment = require('moment');
+import _ from 'lodash';
+import Promise from 'bluebird';
+import Express from 'express';
+import CORS from 'cors';
+import BodyParser from 'body-parser';
+import Moment from 'moment';
 
-var LodashExtra = require('utils/lodash-extra');
-var Database = require('database');
-var Shutdown = require('shutdown');
-var HTTPError = require('errors/http-error');
-var ProjectSettings = require('objects/settings/project-settings');
+import 'utils/lodash-extra';
+import Database from 'database';
+import HTTPError from 'errors/http-error';
+import * as Shutdown from 'shutdown';
+import * as ProjectUtils from 'objects/utils/project-utils';
 
 // global accessors
-var Device = require('accessors/device');
-var Picture = require('accessors/picture');
-var Project = require('accessors/project');
-var Repo = require('accessors/repo');
-var Role = require('accessors/role');
-var Server = require('accessors/server');
-var Session = require('accessors/session');
-var Subscription = require('accessors/subscription');
-var System = require('accessors/system');
-var User = require('accessors/user');
+import Device from 'accessors/device';
+import Picture from 'accessors/picture';
+import Project from 'accessors/project';
+import Repo from 'accessors/repo';
+import Role from 'accessors/role';
+import Server from 'accessors/server';
+import Session from 'accessors/session';
+import Subscription from 'accessors/subscription';
+import System from 'accessors/system';
+import User from 'accessors/user';
 
 // project-specific accessors
-var Bookmark = require('accessors/bookmark');
-var Listing = require('accessors/listing');
-var Notification = require('accessors/notification');
-var Reaction = require('accessors/reaction');
-var Statistics = require('accessors/statistics');
-var Story = require('accessors/story');
-var Task = require('accessors/task');
-
-module.exports = {
-    start,
-    stop,
-};
+import Bookmark from 'accessors/bookmark';
+import Listing from 'accessors/listing';
+import Notification from 'accessors/notification';
+import Reaction from 'accessors/reaction';
+import Statistics from 'accessors/statistics';
+import Story from 'accessors/story';
+import Task from 'accessors/task';
 
 const SESSION_LIFETIME_ADMIN = 60 * 24 * 1;
 const SESSION_LIFETIME_CLIENT = 60 * 24 * 30;
@@ -432,7 +427,7 @@ function fetchCredentials(db, userId, schema) {
         var unrestricted = false;
 
         if (projectCriteria) {
-            var access = ProjectSettings.getUserAccessLevel(project, user);
+            var access = ProjectUtils.getUserAccessLevel(project, user);
             if (!access) {
                 // user has no access to project at all
                 throw new HTTPError(403);
@@ -487,6 +482,10 @@ function getAccessor(schema, table) {
 
 if (process.argv[1] === __filename) {
     start();
+    Shutdown.on(stop);
 }
 
-Shutdown.on(stop);
+export {
+    start,
+    stop,
+};

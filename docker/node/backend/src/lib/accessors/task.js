@@ -1,9 +1,9 @@
-var _ = require('lodash');
-var Promise = require('bluebird');
-var Data = require('accessors/data');
-var HTTPError = require('errors/http-error');
+import _ from 'lodash';
+import Promise from 'bluebird';
+import Data from 'accessors/data';
+import HTTPError from 'errors/http-error';
 
-module.exports = _.create(Data, {
+const Task = _.create(Data, {
     schema: 'both',
     table: 'task',
     columns: {
@@ -124,39 +124,6 @@ module.exports = _.create(Data, {
     },
 
     /**
-     * Insert rows into table
-     *
-     * @param  {Database} db
-     * @param  {String} schema
-     * @param  {Array<Object>} rows
-     *
-     * @return {Promise<Array<Object>>}
-     */
-    insert: function(db, schema, rows) {
-        return Data.insert.call(this, db, schema, rows).catch((err) => {
-            if (err.code === '23505' && rows.length === 1) {
-                // duplicate token--same token is being sent again for some
-                // reason; look for the row and return it
-                console.warn(`Duplicate task token: ${rows[0].token}`);
-                var criteria = {
-                    action:  rows[0].action,
-                    token: rows[0].token,
-                    user_id: rows[0].user_id,
-                    deleted: false,
-                };
-                return this.find(db, schema, criteria, '*').then((rows) => {
-                    if (rows.length === 1) {
-                        return rows;
-                    } else {
-                        throw err;
-                    }
-                });
-            }
-            throw err;
-        });
-    },
-
-    /**
      * Export database row to client-side code, omitting sensitive or
      * unnecessary information
      *
@@ -247,18 +214,23 @@ module.exports = _.create(Data, {
      * @param  {String} schema
      * @param  {String} triggerName
      * @param  {String} method
-     * @param  {Array<String>} arguments
+     * @param  {Array<String>} args
      *
      * @return {Promise<Boolean>}
      */
-    createUpdateTrigger: function(db, schema, triggerName, method, arguments) {
+    createUpdateTrigger: function(db, schema, triggerName, method, args) {
         var table = this.getTableName(schema);
         var sql = `
             CREATE TRIGGER "${triggerName}"
             AFTER UPDATE ON ${table}
             FOR EACH ROW
-            EXECUTE PROCEDURE "${method}"(${arguments.join(', ')});
+            EXECUTE PROCEDURE "${method}"(${args.join(', ')});
         `;
         return db.execute(sql).return(true);
     },
 });
+
+export {
+    Task as default,
+    Task
+};

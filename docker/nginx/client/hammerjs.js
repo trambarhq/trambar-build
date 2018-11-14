@@ -1,4 +1,4 @@
-webpackJsonp(["hammerjs"],{"../node_modules/hammerjs/hammer.js":function(t,e,i){var n;/*! Hammer.JS - v2.0.7 - 2016-04-22
+webpackJsonp(["hammerjs"],{"../../common/node_modules/hammerjs/hammer.js":function(t,e,i){var n;/*! Hammer.JS - v2.0.7 - 2016-04-22
  * http://hammerjs.github.io/
  *
  * Copyright (c) 2016 Jorik Tangelder;

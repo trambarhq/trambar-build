@@ -3,4 +3,3 @@ node_modules
 *.htpasswd
 .env
 .DS_Store
-rebuild-images
