@@ -407,7 +407,7 @@ svg.profile-image {
     transition: font-size 0.25s;
     cursor: pointer; }
     .multilingual-text-field .tab.selected {
-      color: #ffffff;
+      color: #000000;
       background-size: 100% 100%;
       background-repeat: no-repeat;
       background: linear-gradient(45deg, transparent 1.2em, #ffffff 0) bottom left;
