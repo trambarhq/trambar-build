@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+var HTTPS = require('https');
+var keys = require('./keys');
+
+var method = 'POST';
+var hostname = 'registry.hub.docker.com';
+var port = 443;
+var headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Content-Length': 0
+};
+
+keys.dockerImageRebuildURLs.forEach((path) => {
+    var options = { method, hostname, port, path, headers };
+    var req = HTTPS.request(options, (res) => {
+        console.log(res.statusCode);
+    });
+    req.write('');
+    req.end();
+});
