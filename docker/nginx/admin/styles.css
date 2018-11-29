@@ -294,7 +294,7 @@ svg.profile-image {
   width: 10em; }
 
 .member-list-page .sortable-table #range {
-  width: 15em; }
+  width: 16em; }
 
 .member-list-page .sortable-table #to_date, .member-list-page .sortable-table #last_month, .member-list-page .sortable-table #this_month {
   width: 12em; }
@@ -523,6 +523,9 @@ svg.profile-image {
       border: 5px solid #ffffff;
       margin: 0.3em 0.4em 0.3em 0.4em;
       cursor: pointer; }
+      .image-album-dialog-box .scrollable .picture IMG, .image-album-dialog-box .scrollable .picture CANVAS, .image-album-dialog-box .scrollable .picture svg {
+        width: 120px;
+        height: 120px; }
       .image-album-dialog-box .scrollable .picture * {
         display: block; }
       .image-album-dialog-box .scrollable .picture.selected {
@@ -607,7 +610,7 @@ svg.profile-image {
           height: 1px;
           opacity: 0; }
         .image-selector .contents .options .option:hover {
-          background-color: #006699; }
+          color: #006699; }
         .image-selector .contents .options .option.disabled {
           cursor: default;
           color: #999999; }
@@ -1281,7 +1284,11 @@ svg.profile-image {
   color: red;
   padding: 0.5em 0.5em 0.5em 0.5em;
   font-size: 1.2em;
-  font-weight: bold; }
+  font-weight: bold;
+  -webkit-user-select: text;
+     -moz-user-select: text;
+      -ms-user-select: text;
+          user-select: text; }
 .user-summary-page .buttons {
   float: right; }
 
@@ -1347,7 +1354,7 @@ svg.profile-image {
   width: 10em; }
 
 .project-list-page .sortable-table #range {
-  width: 15em; }
+  width: 16em; }
 
 .project-list-page .sortable-table #to_date, .project-list-page .sortable-table #last_month, .project-list-page .sortable-table #this_month {
   width: 10em; }
@@ -1383,7 +1390,7 @@ svg.profile-image {
   width: 14em; }
 
 .repo-list-page .sortable-table #range {
-  width: 15em; }
+  width: 16em; }
 
 .repo-list-page .sortable-table #to_date, .repo-list-page .sortable-table #last_month, .repo-list-page .sortable-table #this_month {
   width: 12em; }

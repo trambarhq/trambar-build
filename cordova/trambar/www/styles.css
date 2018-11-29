@@ -969,7 +969,11 @@ LABEL.push-button {
   color: red;
   padding: 0.5em 0.5em 0.5em 0.5em;
   font-size: 1.2em;
-  font-weight: bold; }
+  font-weight: bold;
+  -webkit-user-select: text;
+     -moz-user-select: text;
+      -ms-user-select: text;
+          user-select: text; }
 .reaction-list {
   padding-top: 2px;
   padding-right: 0.25em; }
