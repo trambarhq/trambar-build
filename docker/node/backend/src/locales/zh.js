@@ -203,8 +203,12 @@ let traditionalPhrases = {
     'notification-$name-completed-task': (name) => {
         return `${name}完成了在你的列表上一個任務`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
-        return `${name}被分配到你的問題`;
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = '問題'; break;
+            case 'merge-request': story = '合併請求'; break;
+        }
+        return `${name}被分配到你的${story}`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -569,6 +573,7 @@ let traditionalPhrases = {
     'story-file': '文件',
     'story-issue-current-status': '當前狀態：',
     'story-issue-status-closed': '關閉',
+    'story-issue-status-merged': '合成',
     'story-issue-status-opened': '開設',
     'story-issue-status-reopened': '重開',
     'story-like': '喜歡',
@@ -628,10 +633,10 @@ let traditionalPhrases = {
         return cardinalT(hr, '一小時前');
     },
     'time-$min-ago': (min) => {
-        return cardinalT(hr, '一分鐘前');
+        return cardinalT(min, '一分鐘前');
     },
     'time-$minutes-ago': (minutes) => {
-        return cardinalT(hr, '一分鐘前');
+        return cardinalT(minutes, '一分鐘前');
     },
     'time-just-now': '剛才',
     'time-yesterday': '昨天',
@@ -923,8 +928,12 @@ let simplifiedPhrases = {
     'notification-$name-completed-task': (name) => {
         return `${name}完成了在你的列表上一个任务`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
-        return `${name}被分配到你的问题`;
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = '问题'; break;
+            case 'merge-request': story = '合并请求'; break;
+        }
+        return `${name}被分配到你的${story}`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -1289,6 +1298,7 @@ let simplifiedPhrases = {
     'story-file': '文件',
     'story-issue-current-status': '当前状态：',
     'story-issue-status-closed': '关闭',
+    'story-issue-status-merged': '合成',
     'story-issue-status-opened': '开设',
     'story-issue-status-reopened': '重开',
     'story-like': '喜欢',
@@ -1528,8 +1538,12 @@ let cantonesePhrases = {
     'notification-$name-completed-task': (name) => {
         return `${name}完成咗喺你個列表上嘅一個任務`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
-        return `${name}被分配到你嘅問題`;
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = '問題'; break;
+            case 'merge-request': story = '合併請求'; break;
+        }
+        return `${name}被分配到你嘅${story}`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {

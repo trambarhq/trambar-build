@@ -169,8 +169,12 @@ const phrases = {
     'notification-$name-completed-task': (name) => {
         return `${name} fullførte en oppgave på listen din`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
-        return `${name} ble tildelt problemet ditt`;
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = 'problemet ditt'; break;
+            case 'merge-request': story = 'merge-requesten din'; break;
+        }
+        return `${name} ble tildelt ${story}`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -532,6 +536,7 @@ const phrases = {
     'story-file': 'Fil',
     'story-issue-current-status': 'Nåværende status:',
     'story-issue-status-closed': 'Lukket',
+    'story-issue-status-merged': 'Fusjonert',
     'story-issue-status-opened': 'Åpen',
     'story-issue-status-reopened': 'Gjenåpnet',
     'story-like': 'Liker',

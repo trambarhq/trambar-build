@@ -18,6 +18,16 @@ function getURL(repo) {
     return url;
 }
 
+function getMembershipPageURL(repo) {
+    let url;
+    let projectURL = getURL(repo)
+    if (projectURL) {
+        projectURL = _.trimEnd(projectURL, ' /');
+        url = `${projectURL}/settings/members`;
+    }
+    return url;
+}
+
 function getIssueNumber(repo, story) {
     let number;
     let issueLink = ExternalDataUtils.findLinkByRelations(story, 'issue');
@@ -52,7 +62,7 @@ function getMergeRequestURL(repo, story) {
     let mergeRequestLink = ExternalDataUtils.findLinkByRelations(story, 'merge_request');
     let mergeRequestID = _.get(mergeRequestLink, 'merge_request.number');
     if (repoURL && mergeRequestID) {
-        url = `${repo.details.web_url}/merge_requests/${milestoneID}`;
+        url = `${repo.details.web_url}/merge_requests/${mergeRequestID}`;
     }
     return url;
 }
@@ -162,6 +172,7 @@ function isBright(color) {
 export {
     getDisplayName,
     getURL,
+    getMembershipPageURL,
     getIssueNumber,
     getIssueURL,
     getMilestoneURL,

@@ -408,12 +408,10 @@ svg.profile-image {
     cursor: pointer; }
     .multilingual-text-field .tab.selected {
       color: #000000;
-      background-size: 100% 100%;
-      background-repeat: no-repeat;
-      background: linear-gradient(45deg, transparent 1.2em, #ffffff 0) bottom left;
+      background: linear-gradient(45deg, transparent 1.2em, #ffffff 0) no-repeat bottom left;
       cursor: default; }
       .multilingual-text-field .tab.selected:first-child {
-        background: linear-gradient(315deg, transparent 1.2em, #ffffff 0) bottom right; }
+        background: linear-gradient(315deg, transparent 1.2em, #ffffff 0) no-repeat bottom right; }
   .multilingual-text-field .bubble {
     position: absolute;
     left: 0;

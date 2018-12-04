@@ -190,10 +190,14 @@ let phrases = {
         let l = pastTenseEnding(name);
         return `${name} выполнил задачу в вашем списке`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = 'ваш отчёт об ошибке'; break;
+            case 'merge-request': story = 'ваш запрос слияния'; break;
+        }
         let l = pastTenseEnding(name);
         let e = l.substr(1);
-        return `${name} бы${l} назначен${e} на ваш отчёт об ошибке`;
+        return `${name} бы${l} назначен${e} на ${story}`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
         switch (story) {
@@ -602,6 +606,7 @@ let phrases = {
     'story-file': 'Файл',
     'story-issue-current-status': 'Текущее состояние:',
     'story-issue-status-closed': 'Закрытый',
+    'story-issue-status-merged': 'Слитый',
     'story-issue-status-opened': 'Открытый',
     'story-issue-status-reopened': 'Вновь открытый',
     'story-like': 'Нравиться',

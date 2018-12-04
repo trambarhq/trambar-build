@@ -334,7 +334,8 @@ LABEL.push-button {
   .no-touch .media-button:hover {
     color: #eeeeee; }
   .media-button.disabled {
-    cursor: default; }
+    cursor: default;
+    opacity: 0.25; }
     .media-button.disabled:hover {
       color: #808080; }
   .media-button .label {
@@ -1121,6 +1122,8 @@ LABEL.push-button {
       color: #44dd44; }
     .story-contents .text .status-closed {
       color: #ff4444; }
+    .story-contents .text .status-merged {
+      color: #33aaff; }
     .story-contents .text .tags {
       line-height: 1.6em; }
     .story-contents .text .tag {
@@ -1145,6 +1148,8 @@ LABEL.push-button {
       vertical-align: middle; }
     .story-contents .text.markdown svg {
       width: 1.5em; }
+    .story-contents .text.markdown A:link, .story-contents .text.markdown A:visited {
+      text-decoration: underline; }
     .story-contents .text.survey .list-item, .story-contents .text.survey .vote-count, .story-contents .text.task-list .list-item, .story-contents .text.task-list .vote-count {
       margin-bottom: 0.2em; }
       .story-contents .text.survey .list-item H1, .story-contents .text.survey .list-item H2, .story-contents .text.survey .list-item H3, .story-contents .text.survey .list-item H4, .story-contents .text.survey .list-item H5, .story-contents .text.survey .list-item H6, .story-contents .text.survey .vote-count H1, .story-contents .text.survey .vote-count H2, .story-contents .text.survey .vote-count H3, .story-contents .text.survey .vote-count H4, .story-contents .text.survey .vote-count H5, .story-contents .text.survey .vote-count H6, .story-contents .text.task-list .list-item H1, .story-contents .text.task-list .list-item H2, .story-contents .text.task-list .list-item H3, .story-contents .text.task-list .list-item H4, .story-contents .text.task-list .list-item H5, .story-contents .text.task-list .list-item H6, .story-contents .text.task-list .vote-count H1, .story-contents .text.task-list .vote-count H2, .story-contents .text.task-list .vote-count H3, .story-contents .text.task-list .vote-count H4, .story-contents .text.task-list .vote-count H5, .story-contents .text.task-list .vote-count H6 {

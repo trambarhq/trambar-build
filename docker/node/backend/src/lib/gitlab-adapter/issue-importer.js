@@ -36,7 +36,8 @@ function importEvent(db, system, server, repo, project, author, glEvent) {
         };
         return Story.findOne(db, schema, criteria, '*').then((story) => {
             return AssignmentImporter.findIssueAssignments(db, server, glIssue).then((assignments) => {
-                var storyAfter = copyIssueProperties(story, system, server, repo, author, assignments, glIssue);
+                var opener = (glEvent.action_name === 'opened') ? author : null;
+                var storyAfter = copyIssueProperties(story, system, server, repo, opener, assignments, glIssue);
                 if (storyAfter === story) {
                     return story;
                 }
@@ -97,7 +98,10 @@ function importHookEvent(db, system, server, repo, project, author, glHookEvent)
                 throw new Error('Story not found');
             }
             return AssignmentImporter.findIssueAssignments(db, server, glIssue).then((assignments) => {
-                var storyAfter = copyIssueProperties(story, system, server, repo, author, assignments, glIssue);
+                // the author of the hook event isn't the issue's author,
+                // hence we're passing null here
+                var opener = null;
+                var storyAfter = copyIssueProperties(story, system, server, repo, opener, assignments, glIssue);
                 if (storyAfter === story) {
                     return story;
                 }
@@ -137,13 +141,13 @@ function importHookEvent(db, system, server, repo, project, author, glHookEvent)
  * @param  {System} system
  * @param  {Server} server
  * @param  {Repo} repo
- * @param  {User} author
+ * @param  {User} opener
  * @param  {Array<Object>} assignments
  * @param  {Object} glIssue
  *
  * @return {Story}
  */
-function copyIssueProperties(story, system, server, repo, author, assignments, glIssue) {
+function copyIssueProperties(story, system, server, repo, opener, assignments, glIssue) {
     var descriptionTags = TagScanner.findTags(glIssue.description);
     var labelTags = _.map(glIssue.labels, (label) => {
         return `#${_.replace(label, /\s+/g, '-')}`;
@@ -184,16 +188,18 @@ function copyIssueProperties(story, system, server, repo, author, assignments, g
         overwrite: 'always',
         ignore: exported,
     });
-    ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
-        value: [ author.id ],
-        overwrite: 'always',
-        ignore: exported,
-    });
-    ExternalDataUtils.importProperty(storyAfter, server, 'role_ids', {
-        value: author.role_ids,
-        overwrite: 'always',
-        ignore: exported,
-    });
+    if (opener) {
+        ExternalDataUtils.importProperty(storyAfter, server, 'user_ids', {
+            value: [ opener.id ],
+            overwrite: 'always',
+            ignore: exported,
+        });
+        ExternalDataUtils.importProperty(storyAfter, server, 'role_ids', {
+            value: opener.role_ids,
+            overwrite: 'always',
+            ignore: exported,
+        });
+    }
     ExternalDataUtils.importProperty(storyAfter, server, 'details.title', {
         value: glIssue.title,
         overwrite: 'match-previous:title',

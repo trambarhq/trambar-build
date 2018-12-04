@@ -179,7 +179,11 @@ const phrases = {
     'notification-$name-completed-task': (name) => {
         return `${name} täytti tehtävänsä luettelossasi`;
     },
-    'notification-$name-is-assigned-to-your-issue': (name) => {
+    'notification-$name-is-assigned-to-your-$story': (name, story) => {
+        switch (story) {
+            case 'issue': story = 'asiallenne'; break;
+            case 'merge-request': story = 'yhdistämispyyntösi'; break;
+        }
         return `${name} oli määrätty asiallenne`;
     },
     'notification-$name-likes-your-$story': (name, story) => {
@@ -548,6 +552,7 @@ const phrases = {
     'story-file': 'Tiedosto',
     'story-issue-current-status': 'Nykyinen tila:',
     'story-issue-status-closed': 'Suljettu',
+    'story-issue-status-merged': 'Yhdistetty',
     'story-issue-status-opened': 'Avoinna',
     'story-issue-status-reopened': 'Avattu uudelleen',
     'story-like': 'Tykkää',
