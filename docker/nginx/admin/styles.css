@@ -1645,20 +1645,20 @@ svg.profile-image {
     padding-right: 2.5em;
     text-align: center;
     vertical-align: middle; }
-  .sign-in-page .oauth-button .error {
-    display: table-cell;
-    padding-left: 1.25em;
-    padding-right: 1.5em;
-    vertical-align: middle; }
   .sign-in-page .oauth-button:link, .sign-in-page .oauth-button:visited {
     text-decoration: none;
+    color: #000000; }
+  .sign-in-page .oauth-button:hover, .sign-in-page .oauth-button:active {
+    background-color: #99ddff;
     color: #000000; }
   .sign-in-page .oauth-button.error {
     border-color: #cc0000;
     color: #cc0000; }
-  .sign-in-page .oauth-button:hover, .sign-in-page .oauth-button:active {
-    background-color: #99ddff;
-    color: #000000; }
+    .sign-in-page .oauth-button.error .label {
+      font-size: 1em;
+      padding-right: 1.5em;
+      text-align: left;
+      vertical-align: middle; }
 .tooltip.project .item {
   margin-bottom: 0.2em; }
 

@@ -5,7 +5,7 @@ var Folder = require('./lib/folder');
 var Git = require('./lib/git');
 var Shell = require('./lib/shell');
 
-var repo = 'git@github.com:chung-leong/trambar.git';
+var repo = 'git@github.com:trambarhq/trambar.git';
 var wf = 'codebase';
 
 var part = process.argv[2] || 'all';
