@@ -29,7 +29,7 @@
     <allow-intent href="geo:*" />
     <platform name="android">
         <allow-intent href="market:*" />
-        <preference name="android-minSdkVersion" value="21" />
+        <resource-file src="google-services.json" target="app/google-services.json" />
     </platform>
     <platform name="ios">
         <allow-intent href="itms:*" />
@@ -119,9 +119,6 @@
         <splash height="1120" src="res/screen/windows/splashscreenphone.scale-140.png" width="672" />
         <splash height="1920" src="res/screen/windows/splashscreenphone.scale-240.png" width="1152" />
     </platform>
-    <engine name="windows" spec="^5.0.0" />
-    <engine name="android" spec="^7.1.0" />
-    <engine name="ios" spec="^4.5.5" />
     <plugin name="cordova-plugin-ios-camera-permissions" spec="^1.2.0">
         <variable name="CAMERA_USAGE_DESCRIPTION" value="The camera is used to scan QR codes and take pictures that you can share with your colleagues." />
         <variable name="MICROPHONE_USAGE_DESCRIPTION" value="The microphone is used when recording audio and video clips." />
@@ -136,9 +133,6 @@
     <plugin name="cordova-plugin-camera" spec="^4.0.3" />
     <plugin name="cordova-plugin-file" spec="^6.0.1" />
     <plugin name="cordova-plugin-qrscanner" spec="^2.6.0" />
-    <plugin name="phonegap-plugin-push" spec="^2.2.3">
-        <variable name="FCM_VERSION" value="11.0.1" />
-    </plugin>
     <plugin name="cordova-plugin-wkwebview-engine" spec="^1.1.4" />
     <plugin name="cordova-plugin-statusbar" spec="^2.4.2" />
     <plugin name="cordova-plugin-network-information" spec="^2.0.1" />
@@ -152,4 +146,11 @@
     </plugin>
     <plugin name="cordova-plugin-file-transfer" spec="^1.7.1" />
     <plugin name="cordova-plugin-is-debug" spec="^1.0.0" />
+    <plugin name="phonegap-plugin-push" spec="^2.2.3">
+        <variable name="ANDROID_SUPPORT_V13_VERSION" value="27.+" />
+        <variable name="FCM_VERSION" value="11.6.2" />
+    </plugin>
+    <engine name="windows" spec="^5.0.0" />
+    <engine name="android" spec="^7.1.4" />
+    <engine name="ios" spec="^4.5.5" />
 </widget>

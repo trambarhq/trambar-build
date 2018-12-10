@@ -3,3 +3,5 @@ keys.js
 *.htpasswd
 .env
 .DS_Store
+google-services.json
+
