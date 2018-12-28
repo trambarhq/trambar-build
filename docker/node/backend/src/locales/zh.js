@@ -7,13 +7,34 @@ import Moment from 'moment';
 Moment.defineLocale('zh-sg', { parentLocale: 'zh-cn' });
 Moment.defineLocale('zh-mo', { parentLocale: 'zh-hk' });
 
-// remove white-spaces from relative time
+// make relative time consistent with how we count things
 ['zh-cn', 'zh-hk', 'zh-tw'].forEach((locale) => {
-    let localeData = Moment.localeData('zh-cn');
-    let relativeTime = localeData._relativeTime;
-    for (let key in relativeTime) {
-        let value = relativeTime[key];
-        relativeTime[key] = value.replace(/\s+/g, '');
+    let localeData = Moment.localeData(locale);
+    let rt = localeData._relativeTime;
+    if (locale === 'zh-cn') {
+        rt.ss = n => cardinalS(n, '一秒');
+        rt.m = '一分钟';
+        rt.mm = n => cardinalS(n, rt.m);
+        rt.h = '一小时';
+        rt.hh = n => cardinalS(n, rt.h);
+        rt.d = '一天';
+        rt.dd = n => cardinalS(n, rt.d);
+        rt.M = '一个月';
+        rt.MM = n => cardinalS(n, rt.M);
+        rt.y = '一年';
+        rt.yy = n => cardinalS(n, rt.y);
+    } else {
+        rt.ss = n => cardinalT(n, '一秒');
+        rt.m = '一分鐘';
+        rt.mm = n => cardinalT(n, rt.m);
+        rt.h = '一小時';
+        rt.hh = n => cardinalT(n, rt.h);
+        rt.d = '一天';
+        rt.dd = n => cardinalT(n, rt.d);
+        rt.M = '一個月';
+        rt.MM = n => cardinalT(n, rt.M);
+        rt.y = '一年';
+        rt.yy = n => cardinalT(n, rt.y);
     }
 });
 
@@ -122,6 +143,7 @@ let traditionalPhrases = {
 
     'empty-currently-offline': '你目前離線',
 
+    'image-editor-image-transfer-in-progress': '正在複製網站圖像⋯⋯',
     'image-editor-page-rendering-in-progress': '正在制作網站預覽⋯⋯',
     'image-editor-poster-extraction-in-progress': '正在從影片中提取預覽⋯⋯',
     'image-editor-upload-in-progress': '正在上傳⋯⋯',
@@ -847,6 +869,7 @@ let simplifiedPhrases = {
 
     'empty-currently-offline': '你目前离线',
 
+    'image-editor-image-transfer-in-progress': '正在复制网站图像⋯⋯',
     'image-editor-page-rendering-in-progress': '正在制作网站预览⋯⋯',
     'image-editor-poster-extraction-in-progress': '正在从影片中提取预览⋯⋯',
     'image-editor-upload-in-progress': '正在上传⋯⋯',

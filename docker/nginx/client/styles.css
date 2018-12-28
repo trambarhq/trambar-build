@@ -280,9 +280,29 @@ LABEL.push-button {
   color: #aaaaaa;
   font-size: 0.9em;
   margin-left: 3.75em; }
-  .story-progress .fa-spinner {
-    opacity: 0.5;
-    margin-left: 0.1em; }
+  .story-progress .spinner {
+    opacity: 0;
+    margin-left: 0.1em;
+    -webkit-animation-name: fade-in;
+            animation-name: fade-in;
+    -webkit-animation-duration: 0.5s;
+            animation-duration: 0.5s;
+    -webkit-animation-iteration-count: 1;
+            animation-iteration-count: 1;
+    -webkit-animation-fill-mode: forwards;
+            animation-fill-mode: forwards; }
+
+@-webkit-keyframes fade-in {
+  0% {
+    opacity: 0; }
+  100% {
+    opacity: 0.5; } }
+
+@keyframes fade-in {
+  0% {
+    opacity: 0; }
+  100% {
+    opacity: 0.5; } }
 .story-emblem {
   float: right; }
   .story-emblem svg {
