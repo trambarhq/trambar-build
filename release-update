@@ -2,16 +2,24 @@
 
 var CodePush = require('./lib/code-push');
 var Shell = require('./lib/shell');
+var File = require('./lib/file');
 
 var targetOS = (process.argv[2] || 'all').toLowerCase();
 var deployment = process.argv[3] || 'Development';
-var version = process.argv[4];
+var targetVersion = process.argv[4];
 
-if (!version) {
-    if (deployment !== 'Development') {
+if (deployment !== 'Development') {
+    if (!targetVersion) {
         console.log('release-update <target-OS> <deployment> <target-version>');
         console.log('\n\n');
         console.log(`A target version must be supplied when deploying to ${deployment}`);
+        process.exit(-1);
+    }
+    var codebaseVersion = getCodeVersion();
+    var cordovaVersion = getCordovaVersion();
+    if (codebaseVersion !== cordovaVersion) {
+        console.log(`The codebase is version ${codebaseVersion} while the Cordova project is version ${cordovaVersion}`);
+        process.exit(-2);
     }
 }
 
@@ -20,11 +28,33 @@ var appNames = {
     ios: 'Trambar-iOS',
 };
 
+if (!appNames[targetOS]) {
+    console.log(`Invalid platform: ${targetOS}`);
+    process.exit(-1);
+}
+
 Shell.chdir(__dirname);
 Shell.chdir(`cordova/trambar`);
 [ 'android', 'ios' ].forEach((os) => {
     if (os === targetOS || targetOS === 'all') {
-        CodePush.release(appNames[os], os, deployment, version);
+        CodePush.release(appNames[os], os, deployment, targetVersion);
     }
 });
 Shell.chdir(__dirname);
+
+function getCodeVersion() {
+    var path = `${__dirname}/VERSION`;
+    return File.readText('./VERSION');
+}
+
+function getCordovaVersion() {
+    var path = `${__dirname}/cordova/trambar/config.xml`;
+    var configXML = File.readText(path);
+    var m1 = /<widget.*?>/.exec(configXML);
+    if (m1) {
+        var m2 = /\bversion="(.*?)"/.exec(m1[0]);
+        if (m2) {
+            return m2[1];
+        }
+    }
+}
