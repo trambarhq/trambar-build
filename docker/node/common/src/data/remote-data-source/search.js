@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
 import Operation from 'data/remote-data-source/operation';
 
 class Search extends Operation {
@@ -8,12 +7,17 @@ class Search extends Operation {
         this.criteria = query.criteria || {};
         this.remote = query.remote || false;
         this.dirty = false;
-        this.cacheSignatureBefore = '';
-        this.cacheSignatureAfter = '';
+        this.invalid = false;
+        this.signature = '';
+        this.notifying = false;
+        this.failed = false;
+        this.initial = true;
         this.updating = false;
-        this.scheduled = false;
         this.lastRetrieved = 0;
+        this.results = undefined;
         this.missingResults = [];
+        this.localSearchPromise = null;
+        this.remoteSearchPromise = null;
 
         this.minimum = query.minimum;
         this.expected = query.expected;
@@ -40,22 +44,6 @@ class Search extends Operation {
      */
     getQuery() {
         return _.pick(this, 'address', 'schema', 'table', 'criteria');
-    }
-
-    /**
-     * Return the types of properties in the criteria object
-     *
-     * @return {Object}
-     */
-    getCriteriaShape() {
-        let shape = _.mapValues(this.criteria, (value) => {
-            if (value != null) {
-                return value.constructor;
-            } else {
-                return null;
-            }
-        });
-        return shape;
     }
 
     /**
@@ -105,8 +93,11 @@ class Search extends Operation {
      * @return {Boolean}
      */
     isSufficientlyRecent(refreshInterval) {
-        if (this.isLocal()) {
+        if (this.local) {
             return true;
+        }
+        if (this.invalid) {
+            return false;
         }
         let rtimes = _.map(this.results, 'rtime');
         let minRetrievalTime = _.min(rtimes);
@@ -153,11 +144,13 @@ class Search extends Operation {
      * @return {Boolean}
      */
     isSufficientlyCached() {
-        let count = this.results.length;
+        if (!this.results) {
+            return false;
+        }
         if (this.minimum == undefined) {
             return false;
         }
-        if (count < this.minimum) {
+        if (this.results.length < this.minimum) {
             return false;
         }
         return true;
@@ -168,21 +161,14 @@ class Search extends Operation {
      *
      * @return {Boolean}
      */
-     isMeetingExpectation() {
+    isMeetingExpectation() {
+        if (!this.results) {
+            return false;
+        }
         if (this.results.length !== this.expected) {
             return false;
         }
         return true;
-    }
-
-    /**
-     * Remember the current cache signature so we know whether the results we
-     * obtained earlier are valid or not
-     *
-     * @param  {String} signature
-     */
-    validateResults(signature) {
-        this.cacheSignatureAfter = signature;
     }
 
     /**
@@ -196,23 +182,16 @@ class Search extends Operation {
      * @return {Array<Number>}
      */
     getUpdateList(ids, gns) {
-        if (this.cacheSignatureBefore) {
-            if (this.cacheSignatureBefore !== this.cacheSignatureAfter) {
-                // the current results aren't valid
-                // fetch everything anew
-                return _.slice(ids);
-            }
-        }
-        let objects = this.results;
+        let objects = (this.invalid || !this.results) ? [] : this.results;
         let updated = [];
-        _.each(ids, (id, i) => {
+        for (let [ i, id ] of ids.entries()) {
             let gn = gns[i];
             let index = _.sortedIndexBy(objects, { id }, 'id');
             let object = (objects) ? objects[index] : null;
             if (!object || object.id !== id || object.gn !== gn) {
                 updated.push(id);
             }
-        });
+        }
         return updated;
     }
 
@@ -224,17 +203,13 @@ class Search extends Operation {
      * @return {Array<Number>}
      */
     getRemovalList(ids) {
-        if (this.cacheSignatureBefore) {
-            if (this.cacheSignatureBefore !== this.cacheSignatureAfter) {
-                return [];
-            }
-        }
+        let objects = (!this.results) ? [] : this.results;
         let removal = [];
-        _.each(this.results, (object) => {
+        for (let object of objects) {
             if (!_.includes(ids, object.id)) {
                 removal.push(object.id);
             }
-        });
+        }
         return removal;
     }
 
@@ -246,56 +221,60 @@ class Search extends Operation {
      * @return {Array<Number>}
      */
     getFetchList(ids) {
-        if (this.cacheSignatureBefore) {
-            if (this.cacheSignatureBefore !== this.cacheSignatureAfter) {
-                return [];
-            }
-        }
-        let objects = this.results;
+        let objects = (this.invalid) ? [] : this.results;
         let updated = [];
-        _.each(ids, (id, i) => {
+        for (let id of ids) {
             let index = _.sortedIndexBy(objects, { id }, 'id');
             let object = (objects) ? objects[index] : null;
             if (!object || object.id !== id) {
                 updated.push(id);
             }
-        });
+        }
         return updated;
     }
 
+    start() {
+        super.start();
+        this.updating = true;
+    }
+
     finish(results) {
-        let previousResults = this.results;
-        let missingResults = [];
-        let newlyRetrieved = 0;
-        Operation.prototype.finish.call(this, results);
+        let previousResults = this.results || [];
+        super.finish(results);
 
         this.dirty = false;
-        this.cacheSignatureBefore = this.cacheSignatureAfter;
-        if (results) {
-            this.promise = Promise.resolve(this.results);
+        this.invalid = false;
+        this.updating = false;
+        this.initial = false;
 
-            // update rtime of results
-            _.each(this.results, (object) => {
-                if (!object.rtime) {
-                    newlyRetrieved++;
-                }
-                object.rtime = this.finishTime;
-            });
+        if (this.results !== previousResults) {
+            let missingResults = [];
+            let newlyRetrieved = 0;
 
-            // if an object that we found before is no longer there, then
-            // it's either deleted or changed in such a way that it longer
-            // meets the criteria; in both scenarios, the local copy has
-            // become stale and should be removed from cache
-            _.each(previousResults, (object) => {
-                let index = _.sortedIndexBy(results, object, 'id');
-                let target = results[index];
-                if (!target || target.id !== object.id) {
-                    missingResults.push(object);
+            if (results) {
+                // update rtime of results
+                for (let object of this.results) {
+                    if (!object.rtime) {
+                        newlyRetrieved++;
+                    }
+                    object.rtime = this.finishTime;
                 }
-            });
+
+                // if an object that we found before is no longer there, then
+                // it's either deleted or changed in such a way that it longer
+                // meets the criteria; in both scenarios, the local copy has
+                // become stale and should be removed from cache
+                for (let object of previousResults) {
+                    let index = _.sortedIndexBy(results, object, 'id');
+                    let target = results[index];
+                    if (!target || target.id !== object.id) {
+                        missingResults.push(object);
+                    }
+                }
+            }
+            this.missingResults = missingResults;
+            this.lastRetrieved = newlyRetrieved;
         }
-        this.missingResults = missingResults;
-        this.lastRetrieved = newlyRetrieved;
     }
 }
 

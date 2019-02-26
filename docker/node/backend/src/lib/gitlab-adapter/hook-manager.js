@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
 import Crypto from 'crypto'
 import Database from 'database';
 import * as TaskLog from 'task-log';
@@ -8,186 +7,96 @@ import Server from 'accessors/server';
 import HTTPError from 'errors/http-error';
 
 import * as Transport from 'gitlab-adapter/transport';
-import * as RepoAssociation from 'gitlab-adapter/repo-association';
-
-var problematicServerIDs = [];
-
-/**
- * Re-install all hooks
- *
- * @param  {Database} db
- * @param  {String} host
- *
- * @return {Promise}
- */
-function installHooks(db, host) {
-    var criteria = {
-        type: 'gitlab',
-        deleted: false,
-        disabled: false,
-    };
-    return Server.find(db, 'global', criteria, '*').each((server) => {
-        if (hasAccessToken(server)) {
-            return installServerHooks(db, host, server).catch((err) => {
-                if (!(err.statusCode >= 400 && err.statusCode <= 499)) {
-                    if (!_.includes(problematicServerIDs, server.id)) {
-                        problematicServerIDs.push(server.id);
-                    }
-                }
-                throw err;
-            });
-        }
-    });
-}
-
-/**
- * Attempt to install hooks on server that failed earlier
- *
- * @param  {Database} db
- * @param  {String} host
- *
- * @return {Promise}
- */
-function installFailedHooks(db, host) {
-    return Promise.each(problematicServerIDs, (serverID) => {
-        var criteria = {
-            id: serverID,
-            type: 'gitlab',
-            deleted: false,
-            disabled: false,
-        };
-        return Server.find(db, 'global', criteria, '*').each((server) => {
-            if (hasAccessToken(server)) {
-                return installServerHooks(db, host, server).then(() => {
-                    _.pull(problematicServerIDs, serverID);
-                }).catch((err) => {
-                    if (err.statusCode >= 400 && err.statusCode <= 499) {
-                        _.pull(problematicServerIDs, serverID);
-                    }
-                    throw err;
-                });
-            } else {
-                _.pull(problematicServerIDs, serverID);
-            }
-        });
-    });
-}
 
 /**
  * Install hooks on given server
  *
- * @param  {Database} db
  * @param  {String} host
  * @param  {Server} server
+ * @param  {Array<Repo>} repos
+ * @param  {Array<Project>} projects
  *
  * @return {Promise}
  */
-function installServerHooks(db, host, server) {
-    return RepoAssociation.find(db).then((associations) => {
-        var taskLog = TaskLog.start('gitlab-hook-install', {
-            server_id: server.id,
-            server: server.name,
-        });
-        return installSystemHook(host, server).then(() => {
-            var serverAssociations = _.filter(associations, (sa) => {
-                return (sa.server.id === server.id);
-            });
-            var hookCount = serverAssociations.length + 1;
-            var added = [ 'system' ];
-            return Promise.each(serverAssociations, (sa) => {
-                var { repo, project } = sa;
-                return installProjectHook(host, server, repo, project).tap(() => {
-                    added.push(repo.name);
-                    taskLog.report(added.length, hookCount, { added });
-                }).catch((err) => {
-                    console.error(err.message);
-                });
-            });
-        }).tap(() => {
-            return taskLog.finish();
-        }).tapCatch((err) => {
-            return taskLog.abort(err);
-        });
+async function installServerHooks(host, server, repos, projects) {
+    let taskLog = TaskLog.start('gitlab-hook-install', {
+        server_id: server.id,
+        server: server.name,
     });
-}
+    try {
+        let list = getRepoProjectPairs(repos, projects);
+        let hookCount = list.length + 1;
+        let added = [];
 
-/**
- * Remove all hooks
- *
- * @param  {Database} db
- * @param  {String} host
- *
- * @return {Promise}
- */
-function removeHooks(db, host) {
-    var criteria = {
-        type: 'gitlab',
-        deleted: false,
-        disabled: false,
-    };
-    return Server.find(db, 'global', criteria, '*').each((server) => {
-        if (hasAccessToken(server)) {
-            return removeServerHooks(db, host, server).finally(() => {
-                _.pull(problematicServerIDs, server.id);
-            });
+        // install system hook
+        await installSystemHook(host, server);
+        added.push('system');
+        taskLog.report(added.length, hookCount, { added });
+
+        // install project hooks
+        for (let { repo, project } of list) {
+            await installProjectHook(host, server, repo, project);
+            added.push(repo.name);
+            taskLog.report(added.length, hookCount, { added });
         }
-    });
+        await taskLog.finish();
+    } catch (err) {
+        await taskLog.abort(err);
+    }
 }
 
 /**
  * Remove all project hooks
  *
- * @param  {Database} db
  * @param  {String} host
  * @param  {Server} server
+ * @param  {Array<Repo>} repos
+ * @param  {Array<Project>} projects
  *
  * @return {Promise}
  */
-function removeServerHooks(db, host, server) {
-    return RepoAssociation.find(db, undefined, {}, {}).then((associations) => {
-        var taskLog = TaskLog.start('gitlab-hook-remove', {
-            server_id: server.id,
-            server: server.name,
-        });
-        return removeSystemHook(host, server).then(() => {
-            var serverAssociations = _.filter(associations, (sa) => {
-                return (sa.server.id === server.id);
-            });
-            var hookCount = serverAssociations.length + 1;
-            var deleted = [ 'system' ];
-            taskLog.report(deleted.length, hookCount, { deleted });
-            return Promise.each(serverAssociations, (sa) => {
-                var { repo, project } = sa;
-                return removeProjectHook(host, server, repo, project).then(() => {
-                    deleted.push(repo.name);
-                    taskLog.report(deleted.length, hookCount, { deleted });
-                });
-            });
-        }).tap(() => {
-            taskLog.finish();
-        }).tapCatch((err) => {
-            taskLog.abort(err);
-        });
+async function removeServerHooks(host, server, repos, projects) {
+    let taskLog = TaskLog.start('gitlab-hook-remove', {
+        server_id: server.id,
+        server: server.name,
     });
+    try {
+        let list = getRepoProjectPairs(repos, projects);
+        let hookCount = list.length + 1;
+        let deleted = [];
+
+        // remove system hook
+        await removeSystemHook(host, server);
+        deleted.push('system');
+        taskLog.report(deleted.length, hookCount, { deleted });
+
+        // remove project hooks
+        for (let { repo, project } of list) {
+            await removeProjectHook(host, server, repo, project);
+            deleted.push(repo.name);
+            taskLog.report(deleted.length, hookCount, { deleted });
+        }
+        await taskLog.finish();
+    } catch (err) {
+        await taskLog.abort(err);
+    }
 }
 
-function installSystemHook(host, server) {
+async function installSystemHook(host, server) {
+    if (!host) {
+        throw HTTPError(400, 'Unable to install hook due to missing server address')
+    }
     console.log(`Installing web-hook on server: ${server.name}`);
-    return fetchSystemHooks(server).then((glHooks) => {
-        if (!host) {
-            throw HTTPError(400, 'Unable to install hook due to missing server address')
+    let glHooks = await fetchSystemHooks(server);
+    let url = getSystemHookEndpoint(host, server);
+    let hookProps = getSystemHookProps(url);
+    for (let glHook of glHooks) {
+        if (glHook.url === url) {
+            console.log(`Removing existing hook: ${glHook.url}`);
+            await destroySystemHook(server, glHook);
         }
-        var url = getSystemHookEndpoint(host, server);
-        var hookProps = getSystemHookProps(url);
-        return Promise.each(glHooks, (glHook) => {
-            if (glHook.url === url) {
-                console.log(`Removing existing hook: ${glHook.url}`);
-                return destroySystemHook(server, glHook);
-            }
-        }).then(() => {
-            return createSystemHook(server, hookProps);
-        });
-    });
+    }
+    await createSystemHook(server, hookProps);
 }
 
 /**
@@ -200,25 +109,24 @@ function installSystemHook(host, server) {
  *
  * @return {Promise}
  */
-function installProjectHook(host, server, repo, project) {
+async function installProjectHook(host, server, repo, project) {
+    if (!host) {
+        throw HTTPError(400, 'Unable to install hook due to missing server address');
+    }
     console.log(`Installing web-hook on repo for project: ${repo.name} -> ${project.name}`);
-    var repoLink = ExternalDataUtils.findLink(repo, server);
-    return fetchProjectHooks(server, repoLink.project.id).then((glHooks) => {
-        if (!host) {
-            throw HTTPError(400, 'Unable to install hook due to missing server address')
+    let repoLink = ExternalDataUtils.findLink(repo, server);
+    let glHooks = await fetchProjectHooks(server, repoLink.project.id);
+
+    // remove existing hooks
+    let url = getProjectHookEndpoint(host, server, repo, project);
+    let hookProps = getProjectHookProps(url);
+    for (let glHook of glHooks) {
+        if (glHook.url === url) {
+            console.log(`Removing existing hook: ${glHook.url}`);
+            await destroyProjectHook(server, repoLink.project.id, glHook);
         }
-        // remove existing hooks
-        var url = getProjectHookEndpoint(host, server, repo, project);
-        var hookProps = getProjectHookProps(url);
-        return Promise.each(glHooks, (glHook) => {
-            if (glHook.url === url) {
-                console.log(`Removing existing hook: ${glHook.url}`);
-                return destroyProjectHook(server, repoLink.project.id, glHook);
-            }
-        }).then(() => {
-            return createProjectHook(server, repoLink.project.id, hookProps);
-        });
-    });
+    }
+    await createProjectHook(server, repoLink.project.id, hookProps);
 }
 
 /**
@@ -229,17 +137,18 @@ function installProjectHook(host, server, repo, project) {
  *
  * @return {Promise}
  */
-function removeSystemHook(host, server) {
+async function removeSystemHook(host, server) {
     if (!host) {
-        return Promise.resolve();
+        return;
     }
     console.log(`Removing web-hook on server: ${server.name}`);
-    return fetchSystemHooks(server).each((glHook) => {
-        var url = getSystemHookEndpoint(host, server);
+    let glHooks = await fetchSystemHooks(server);
+    for (let glHook of glHooks) {
+        let url = getSystemHookEndpoint(host, server);
         if (glHook.url === url) {
-            return destroySystemHook(server, glHook);
+            await destroySystemHook(server, glHook);
         }
-    });
+    }
 }
 
 /**
@@ -252,18 +161,19 @@ function removeSystemHook(host, server) {
  *
  * @return {Promise}
  */
-function removeProjectHook(host, server, repo, project) {
+async function removeProjectHook(host, server, repo, project) {
     if (!host) {
-        return Promise.resolve();
+        return;
     }
     console.log(`Removing web-hook on repo for project: ${repo.name} -> ${project.name}`);
-    var repoLink = ExternalDataUtils.findLink(repo, server);
-    return fetchProjectHooks(server, repoLink.project.id).each((glHook) => {
-        var url = getProjectHookEndpoint(host, server, repo, project);
+    let repoLink = ExternalDataUtils.findLink(repo, server);
+    let glHooks = await fetchProjectHooks(server, repoLink.project.id);
+    for (let glHook of glHooks) {
+        let url = getProjectHookEndpoint(host, server, repo, project);
         if (glHook.url === url) {
-            return destroyProjectHook(server, repoLink.project.id, glHook);
+            await destroyProjectHook(server, repoLink.project.id, glHook);
         }
-    });
+    }
 }
 
 /**
@@ -273,8 +183,8 @@ function removeProjectHook(host, server, repo, project) {
  *
  * @return {Array<Object>}
  */
-function fetchSystemHooks(server) {
-    var url = `/hooks`;
+async function fetchSystemHooks(server) {
+    let url = `/hooks`;
     return Transport.fetchAll(server, url);
 }
 
@@ -282,12 +192,12 @@ function fetchSystemHooks(server) {
  * Retrieve all project hooks installed on repo
  *
  * @param  {Server} server
- * @param  {Number} glProjectId
+ * @param  {Number} glProjectID
  *
  * @return {Array<Object>}
  */
-function fetchProjectHooks(server, glProjectId) {
-    var url = `/projects/${glProjectId}/hooks`;
+async function fetchProjectHooks(server, glProjectID) {
+    let url = `/projects/${glProjectID}/hooks`;
     return Transport.fetchAll(server, url);
 }
 
@@ -299,8 +209,8 @@ function fetchProjectHooks(server, glProjectId) {
  *
  * @return {Promise<Object>}
  */
-function createSystemHook(server, glHook) {
-    var url = `/hooks`;
+async function createSystemHook(server, glHook) {
+    let url = `/hooks`;
     return Transport.post(server, url, glHook);
 }
 
@@ -308,13 +218,13 @@ function createSystemHook(server, glHook) {
  * Install a project hook on Gitlab server
  *
  * @param  {Server} server
- * @param  {Number} glProjectId
+ * @param  {Number} glProjectID
  * @param  {Object} glHook
  *
  * @return {Promise<Object>}
  */
-function createProjectHook(server, glProjectId, glHook) {
-    var url = `/projects/${glProjectId}/hooks`;
+async function createProjectHook(server, glProjectID, glHook) {
+    let url = `/projects/${glProjectID}/hooks`;
     return Transport.post(server, url, glHook);
 }
 
@@ -326,8 +236,8 @@ function createProjectHook(server, glProjectId, glHook) {
  *
  * @return {Promise}
  */
-function destroySystemHook(server, glHook) {
-    var url = `/hooks/${glHook.id}`;
+async function destroySystemHook(server, glHook) {
+    let url = `/hooks/${glHook.id}`;
     return Transport.remove(server, url);
 }
 
@@ -335,13 +245,13 @@ function destroySystemHook(server, glHook) {
  * Remove a project hook from Gitlab server
  *
  * @param  {Server} server
- * @param  {Number} glProjectId
+ * @param  {Number} glProjectID
  * @param  {Object} glHook
  *
  * @return {Promise}
  */
-function destroyProjectHook(server, glProjectId, glHook) {
-    var url = `/projects/${glProjectId}/hooks/${glHook.id}`;
+async function destroyProjectHook(server, glProjectID, glHook) {
+    let url = `/projects/${glProjectID}/hooks/${glHook.id}`;
     return Transport.remove(server, url);
 }
 
@@ -418,8 +328,8 @@ function getProjectHookEndpoint(host, server, repo, project) {
  * @return {Boolean}
  */
 function hasAccessToken(server) {
-    var accessToken = _.get(server, 'settings.api.access_token');
-    var oauthBaseURL = _.get(server, 'settings.oauth.base_url');
+    let accessToken = _.get(server, 'settings.api.access_token');
+    let oauthBaseURL = _.get(server, 'settings.oauth.base_url');
     return (accessToken && oauthBaseURL);
 }
 
@@ -430,8 +340,8 @@ function hasAccessToken(server) {
  * @param  {HTTPRequest} req
  */
 function verifyHookRequest(req) {
-    var tokenReceived = req.headers['x-gitlab-token'];
-    var tokenRequired = getSecretToken();
+    let tokenReceived = req.headers['x-gitlab-token'];
+    let tokenRequired = getSecretToken();
     if (tokenReceived !== tokenRequired) {
         throw new HTTPError(403);
     }
@@ -444,21 +354,30 @@ function verifyHookRequest(req) {
  */
 function getSecretToken() {
     if (!secretToken) {
-        var buffer = Crypto.randomBytes(16);
+        let buffer = Crypto.randomBytes(16);
         secretToken = buffer.toString('hex');
     }
     return secretToken;
 }
 
-var secretToken;
+function getRepoProjectPairs(repos, projects) {
+    let list = [];
+    for (let project of projects) {
+        for (let repo of repos) {
+            if (_.includes(project.repo_ids, repo.id)) {
+                list.push({ repo, project });
+            }
+        }
+    }
+    return list;
+}
+
+let secretToken;
 
 export {
-    installHooks,
-    installFailedHooks,
     installServerHooks,
     installSystemHook,
     installProjectHook,
-    removeHooks,
     removeServerHooks,
     removeSystemHook,
     removeProjectHook,

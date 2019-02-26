@@ -1,4 +1,4 @@
-import _ from 'lodash'
+import _ from 'lodash';
 import Operation from 'data/remote-data-source/operation';
 
 class Storage extends Operation {
@@ -6,16 +6,16 @@ class Storage extends Operation {
         super(location);
         this.objects = objects;
         this.options = options || {};
-        this.canceled = false;
+        this.promise = null;
     }
 
     finish(results) {
         super.finish(results);
 
-        if (!this.isLocal()) {
-            _.each(this.results, (object) => {
+        if (!this.local) {
+            for (let object of this.results) {
                 object.rtime = this.finishTime;
-            });
+            }
         }
     }
 }

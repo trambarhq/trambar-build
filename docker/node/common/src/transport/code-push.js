@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
 import Moment from 'moment';
 import FileError from 'errors/file-error';
 import EventEmitter, { GenericEvent } from 'relaks-event-emitter';
@@ -48,16 +47,14 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise<String>}
      */
-    loadDeploymentName() {
+    async loadDeploymentName() {
         let names = this.getDeploymentNames();
-        return readTextFile('codepush').then((name) => {
-            if (!_.includes(names, name)) {
-                throw new Error(`Unrecognized deployment name: ${name}`);
-            }
+        let name = await readTextFile('codepush');
+        if (_.includes(names, name)) {
             return name;
-        }).catch((err) => {
+        } else {
             return _.first(names);
-        });
+        }
     }
 
     /**
@@ -65,11 +62,9 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise}
      */
-    saveDeploymentName(type) {
-        return writeTextFile('codepush', type).then(() => {
-            this.checkForUpdate();
-            return null;
-        });
+    async saveDeploymentName(type) {
+        await writeTextFile('codepush', type);
+        this.checkForUpdate();
     }
 
     /**
@@ -77,7 +72,7 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise<Object>}
      */
-    getCurrentPackage() {
+    async getCurrentPackage() {
         return new Promise((resolve, reject) => {
             if (typeof(codePush) === 'object') {
                 codePush.getCurrentPackage((pkg) => {
@@ -96,7 +91,7 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise<Object>}
      */
-    getPendingPackage() {
+    async getPendingPackage() {
         return new Promise((resolve, reject) => {
             if (typeof(codePush) === 'object') {
                 codePush.getPendingPackage((pkg) => {
@@ -115,21 +110,17 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise}
      */
-    checkForUpdate() {
-        return this.loadDeploymentName().then((deployment) => {
-            let platform = cordova.platformId;
-            let deploymentKey = _.get(this.options.keys, [ platform, deployment ]);
-
-            return this.synchronize(deploymentKey).then((result) => {
-                this.lastSyncStatus = result;
-                this.lastSyncTime = Moment().toISOString();
-                if (result === 'UPDATE_INSTALLED') {
-                    return this.getPendingPackage().then((pkg) => {
-                        this.pendingPackage = pkg;
-                    });
-                }
-            });
-        });
+    async checkForUpdate() {
+        let deployment = await this.loadDeploymentName();
+        let platform = cordova.platformId;
+        let deploymentKey = _.get(this.options.keys, [ platform, deployment ]);
+        let result = await this.synchronize(deploymentKey);
+        this.lastSyncStatus = result;
+        this.lastSyncTime = Moment().toISOString();
+        if (result === 'UPDATE_INSTALLED') {
+            let pkg = await this.getPendingPackage();
+            this.pendingPackage = pkg;
+        }
     }
 
     /**
@@ -139,30 +130,28 @@ class CodePush extends EventEmitter {
      *
      * @return {Promise<String>}
      */
-    synchronize(deploymentKey) {
-        return Promise.try(() => {
-            if (typeof(codePush) !== 'object') {
-                return 'NO_PLUGIN';
-            }
-            if (!deploymentKey) {
-                return 'NO_DEPLOYMENT_KEY';
-            }
-            return new Promise((resolve, reject) => {
-                let callback = (status) => {
-                    switch (status) {
-                        case SyncStatus.UPDATE_INSTALLED:
-                            resolve('UPDATE_INSTALLED');
-                            break;
-                        case SyncStatus.UP_TO_DATE:
-                            resolve('UP_TO_DATE');
-                            break;
-                        case SyncStatus.ERROR:
-                            resolve('ERROR');
-                            break;
-                    }
-                };
-                codePush.sync(callback, { deploymentKey });
-            });
+    async synchronize(deploymentKey) {
+        if (typeof(codePush) !== 'object') {
+            return 'NO_PLUGIN';
+        }
+        if (!deploymentKey) {
+            return 'NO_DEPLOYMENT_KEY';
+        }
+        return new Promise((resolve, reject) => {
+            let callback = (status) => {
+                switch (status) {
+                    case SyncStatus.UPDATE_INSTALLED:
+                        resolve('UPDATE_INSTALLED');
+                        break;
+                    case SyncStatus.UP_TO_DATE:
+                        resolve('UP_TO_DATE');
+                        break;
+                    case SyncStatus.ERROR:
+                        resolve('ERROR');
+                        break;
+                }
+            };
+            codePush.sync(callback, { deploymentKey });
         });
     }
 }

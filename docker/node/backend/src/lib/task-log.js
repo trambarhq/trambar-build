@@ -1,8 +1,6 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
 import Database from 'database';
 import * as Shutdown from 'shutdown';
-import TaskQueue from 'utils/task-queue';
 
 import Task from 'accessors/task';
 
@@ -26,120 +24,125 @@ function start(action, options) {
  *
  * @return {Promise<Task|null>}
  */
-function last(action, options) {
-    return Database.open().then((db) => {
-        var criteria = {
-            action,
-            options,
-            order: 'id DESC',
-            limit: 1,
-        };
-        return Task.findOne(db, 'global', criteria, '*');
-    });
+async function last(action, options) {
+    let db = await Database.open();
+    let criteria = {
+        action,
+        options,
+        noop: false,
+        order: 'id DESC',
+        limit: 1,
+    };
+    return Task.findOne(db, 'global', criteria, '*');
 }
 
-/**
- * @param  {String} action
- * @param  {Object|undefined} options
- *
- * @constructor
- */
-function TaskLog(action, options) {
-    this.action = action;
-    this.options = options;
+class TaskLog {
+    /**
+     * @param  {String} action
+     * @param  {Object|undefined} options
+     *
+     * @constructor
+     */
+    constructor(action, options) {
+        this.action = action;
+        this.options = options;
 
-    // call scheduled later override those scheduled earlier
-    this.queue = new TaskQueue({ overriding: true });
-    this.frequency = '1 second';
+        this.id = undefined;
+        this.completion = undefined;
+        this.details = undefined;
+        this.noop = true;
+        this.saved = false;
+        this.saving = false;
+        this.error = null;
+        this.saveTimeout = 0;
+        this.saveTime = null;
 
-    this.id = undefined;
-    this.completion = undefined;
-    this.details = undefined;
-    this.noop = true;
-    this.saved = false;
-    this.saving = false;
-    this.error = null;
-
-    // monitor for system shutdown to ensure data is saved
-    this.shutdownListener = () => {
-        if (!this.noop) {
-            if (!this.saved) {
-                if (this.completion !== 100) {
-                    this.error = new Error('Interrupted by shutdown');
-                    this.details.error = _.pick(this.error, 'message');
-                    this.failed = true;
+        // monitor for system shutdown to ensure data is saved
+        this.shutdownListener = () => {
+            if (!this.noop) {
+                if (!this.saved) {
+                    if (this.completion !== 100) {
+                        this.error = new Error('Interrupted by shutdown');
+                        this.details.error = _.pick(this.error, 'message');
+                        this.failed = true;
+                    }
+                    clearTimeout(this.saveTimeout);
+                    return this.save();
                 }
-                this.queue.clear();
-                return this.save();
-            } else {
-                return this.savePromise;
             }
+        };
+        Shutdown.on(this.shutdownListener);
+    }
+
+    /**
+     * Record progress of task
+     *
+     * @param  {Number} current
+     * @param  {Number} total
+     * @param  {Object|undefined} details
+     */
+    report(current, total, details) {
+        this.completion = (total > 0) ? Math.round(current / total * 100) : 0;
+        this.details = details;
+        this.noop = false;
+        this.saved = false;
+
+        let now = new Date;
+        if (!this.saveTimeout || !this.saveTime || (now - this.saveTime) < 5000) {
+            clearTimeout(this.saveTimeout);
+            this.saveTimeout = setTimeout(() => {
+                this.save();
+            }, 1500);
         }
     };
-    Shutdown.on(this.shutdownListener);
-}
 
-/**
- * Record progress of task
- *
- * @param  {Number} current
- * @param  {Number} total
- * @param  {Object|undefined} details
- */
-TaskLog.prototype.report = function(current, total, details) {
-    this.completion = (total > 0) ? Math.round(current / total * 100) : 0;
-    this.details = details;
-    this.noop = false;
-    this.saved = false;
-    this.queue.schedule('log', this.frequency, () => {
+    /**
+     * Record that the task is done
+     *
+     * @return {Promise}
+     */
+    async finish() {
+        if (this.completion === 100 && this.saved) {
+            // already has the right values
+            return null;
+        }
+        this.completion = 100;
+        this.saved = false;
+        clearTimeout(this.saveTimeout);
+        Shutdown.off(this.shutdownListener);
         return this.save();
-    });
-};
+    };
 
-/**
- * Record that the task is done
- *
- * @return {Promise<Task>}
- */
-TaskLog.prototype.finish = function() {
-    if (this.completion === 100 && this.saved) {
-        // already has the right values
-        return Promise.resolve(null);
-    }
-    this.completion = 100;
-    this.saved = false;
-    Shutdown.off(this.shutdownListener);
-    return this.save();
-};
+    /**
+     * Record that the task failed to finish, probably due to an error
+     *
+     * @param  {Error|undefined} err
+     *
+     * @return {Promise}
+     */
+    async abort(err) {
+        this.error = err;
+        this.details = _.clone(this.details) || {};
+        this.details.error = _.pick(err, 'message', 'stack', 'code', 'statusCode', 'reason');
+        this.failed = true;
+        this.saved = false;
+        clearTimeout(this.saveTimeout);
+        Shutdown.off(this.shutdownListener);
+        console.error(err);
+        return this.save();
+    };
 
-/**
- * Record that the task failed to finish, probably due to an error
- *
- * @param  {Error|undefined} err
- *
- * @return {Promise<Task>}
- */
-TaskLog.prototype.abort = function(err) {
-    this.error = err;
-    this.details = _.clone(this.details) || {};
-    this.details.error = _.pick(err, 'message', 'stack', 'code', 'statusCode');
-    this.failed = true;
-    this.saved = false;
-    Shutdown.off(this.shutdownListener);
-    return this.save();
-};
-
-/**
- * Preserved any unsaved progress info
- *
- * @return {Promise<Task|null>}
- */
-TaskLog.prototype.save = function() {
-    this.savePromise = Database.open().then((db) => {
+    /**
+     * Preserved any unsaved progress info
+     *
+     * @return {Promise<Task|null>}
+     */
+    async save() {
         if (this.noop && !this.failed) {
             return null;
         }
-        var columns = {};
+        let db = await Database.open();
+        let columns = {};
         if (!this.id) {
             columns.action = this.action;
             columns.options = this.options;
@@ -152,12 +155,13 @@ TaskLog.prototype.save = function() {
         if (this.completion === 100) {
             columns.etime = String('NOW()');
         }
-        return Task.saveOne(db, 'global', columns).then((task) => {
-            this.id = task.id;
-            this.saved = true;
-        });
-    }).tap(() => {
-        var state = ''
+        let task = await Task.saveOne(db, 'global', columns);
+        this.id = task.id;
+        this.saved = true;
+        this.saveTime = new Date;
+        this.saveTimeout = 0;
+
+        let state = ''
         if (this.completion < 100) {
             if (this.failed) {
                 state = 'aborted';
@@ -168,9 +172,8 @@ TaskLog.prototype.save = function() {
             state = 'finished';
         }
         console.log(`[${this.id || 'NOP'}] ${this.action}: ${state}`);
-    });
-    return this.savePromise;
-};
+    }
+}
 
 export {
     start,

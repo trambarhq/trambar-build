@@ -1,15 +1,15 @@
-import Promise from 'bluebird';
-
-function ManualPromise() {
-    Promise.call(this, (resolve, reject) => {
-        this.resolve = resolve;
-        this.reject = reject;
+function create() {
+    let resolve, reject;
+    let promise = new Promise((f1, f2) => {
+        resolve = f1;
+        reject = f2;
     });
+    promise.resolve = resolve;
+    promise.reject = reject;
+    return promise;
 }
 
-ManualPromise.prototype = Object.create(Promise.prototype);
-
 export {
-    ManualPromise as default,
-    ManualPromise,
+    create as default,
+    create,
 };

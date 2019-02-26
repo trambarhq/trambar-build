@@ -175,7 +175,8 @@ LABEL.push-button {
     left: 0.5em;
     top: 1.5em;
     width: 100vw;
-    z-index: 500; }
+    z-index: 500;
+    font-size: 1rem; }
     .multiple-user-names .popup-container .popup {
       display: inline-block;
       border: 1px solid #000000;
@@ -222,7 +223,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
 .bookmark-view {
   border: 2px solid #111111;
   background-color: #111111; }
@@ -408,7 +409,7 @@ LABEL.push-button {
     display: block;
     flex: 1 0 auto;
     padding: 0.4em 0 0.2em 0;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
     .media-dialog-box .controls .links {
       float: left; }
     .media-dialog-box .controls .buttons {
@@ -430,9 +431,10 @@ LABEL.push-button {
       display: block;
       width: 100%;
       height: auto; }
-.duration-indiactor .icon {
+.duration-indicator .icon {
+  margin-left: 0.5em;
   color: #eeeeee; }
-  .duration-indiactor .icon.blinking {
+  .duration-indicator .icon.blinking {
     color: #ff4444;
     opacity: 1;
     -webkit-animation: blinking 0.5s linear infinite;
@@ -446,8 +448,7 @@ LABEL.push-button {
   50% {
     opacity: 0; } }
 
-.duration-indiactor .duration {
-  margin-left: 0.5em;
+.duration-indicator .duration {
   color: #eeeeee; }
 .media-view {
   position: relative;
@@ -528,8 +529,13 @@ LABEL.push-button {
   margin-left: 0.5em; }
 .pop-up-menu {
   position: relative; }
-  .pop-up-menu .button.active {
-    cursor: pointer; }
+  .pop-up-menu .button {
+    -webkit-user-select: none;
+       -moz-user-select: none;
+        -ms-user-select: none;
+            user-select: none; }
+    .pop-up-menu .button.active {
+      cursor: pointer; }
   .pop-up-menu .container {
     position: absolute;
     width: 80vw;
@@ -827,87 +833,146 @@ LABEL.push-button {
   .photo-capture-dialog-box .container {
     flex: 1 1 auto;
     overflow: hidden;
-    margin-bottom: 0.2em;
-    position: relative; }
-    .photo-capture-dialog-box .container .live-video, .photo-capture-dialog-box .container .preview {
-      position: absolute;
-      left: 0;
-      bottom: 0;
-      right: 0;
+    margin-bottom: 0.2em; }
+    .photo-capture-dialog-box .container VIDEO, .photo-capture-dialog-box .container IMG {
       display: block; }
-    .photo-capture-dialog-box .container .spacer {
-      display: block;
-      visibility: hidden; }
-      .single-col .photo-capture-dialog-box .container .spacer {
-        width: 100%; }
   .photo-capture-dialog-box .controls {
-    display: block;
+    display: flex;
     flex: 1 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
-    border-top: 1px solid #808080; }
-    .photo-capture-dialog-box .controls .device-selector {
-      float: left; }
-    .photo-capture-dialog-box .controls .buttons {
-      float: right; }
-    .photo-capture-dialog-box .controls:after {
-      content: "";
-      display: table;
-      clear: both; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
+    .photo-capture-dialog-box .controls .left {
+      flex: 1 0 0; }
+      .photo-capture-dialog-box .controls .left .duration-indicator {
+        margin-top: 0.65em; }
+    .photo-capture-dialog-box .controls .right {
+      flex: 1 0 0;
+      text-align: right; }
   .single-col .photo-capture-dialog-box {
-    width: 100%;
-    max-width: none; }
+    max-width: 100%; }
+.volume-indicator .fa {
+  display: inline-block;
+  width: 1.25em;
+  vertical-align: middle;
+  text-align: left;
+  color: #a0a0a0; }
+
+.volume-indicator.bar .volume-bar-frame {
+  display: inline-block;
+  border: 1px solid #a0a0a0;
+  width: 5em;
+  vertical-align: middle; }
+  .volume-indicator.bar .volume-bar-frame .volume-bar {
+    height: 0.5em;
+    background-color: #505050; }
+    .volume-indicator.bar .volume-bar-frame .volume-bar.recording {
+      background-color: #808080; }
+
+.volume-indicator.gauge {
+  position: relative; }
+  .volume-indicator.gauge .fa {
+    position: absolute;
+    font-size: 100px;
+    left: 130px;
+    top: 70px;
+    z-index: 10;
+    color: #443535; }
+  .volume-indicator.gauge .mask {
+    position: relative;
+    overflow: hidden;
+    display: block;
+    width: 300px;
+    height: 150px;
+    margin: 20px; }
+  .volume-indicator.gauge .semi-circle {
+    position: relative;
+    display: block;
+    width: 300px;
+    height: 150px;
+    background: linear-gradient(to right, #ff4444 0%, #eeee33 50%, #44dd44 100%);
+    border-radius: 50% 50% 50% 50% / 100% 100% 0% 0%; }
+    .volume-indicator.gauge .semi-circle::before {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      z-index: 2;
+      display: block;
+      width: 280px;
+      height: 140px;
+      margin-left: -140px;
+      background: #362a2a;
+      border-radius: 50% 50% 50% 50% / 100% 100% 0% 0%; }
+  .volume-indicator.gauge .semi-circle-mask {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 300px;
+    height: 300px;
+    background: transparent;
+    -webkit-transform: rotate(120deg) translate3d(0, 0, 0);
+            transform: rotate(120deg) translate3d(0, 0, 0);
+    -webkit-transform-origin: center center;
+            transform-origin: center center;
+    -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+    transition: all .4s ease-out; }
+    .volume-indicator.gauge .semi-circle-mask::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0%;
+      z-index: 2;
+      display: block;
+      width: 302px;
+      height: 152px;
+      margin: -1px 0 0 -1px;
+      background: #443535;
+      border-radius: 50% 50% 50% 50% / 100% 100% 0% 0%; }
 .audio-capture-dialog-box {
   display: flex;
   flex-direction: column;
-  max-height: 100%;
-  max-width: 24em;
-  width: 80%;
   background-color: #362a2a;
   box-shadow: 2px 2px 2px #000000;
   color: #c0c0c0;
   margin: auto;
   padding: 0.4em 0.4em 0.4em 0.4em; }
   .audio-capture-dialog-box .container {
+    display: flex;
     flex: 1 1 auto;
+    justify-content: center;
     overflow: hidden;
     padding-bottom: 0.2em;
     width: 100%; }
-    .audio-capture-dialog-box .container .volume-meter {
-      display: flex;
-      flex-direction: row;
-      align-items: center; }
-      .audio-capture-dialog-box .container .volume-meter .icon {
-        flex: 0 1 auto;
-        font-size: 2em;
-        width: 0.75em;
-        line-height: 100%;
-        margin: 0em 0.2em 0em 0.2em; }
-      .audio-capture-dialog-box .container .volume-meter .bar-container {
-        flex: 1 1 auto;
-        margin: 0.2em 0 0.2em 0.2em; }
-        .audio-capture-dialog-box .container .volume-meter .bar-container .bar {
-          padding: 2px 2px 2px 2px;
-          border: 1px solid #808080; }
-          .audio-capture-dialog-box .container .volume-meter .bar-container .bar .fill {
-            height: 1em;
-            background-color: #808080; }
     .audio-capture-dialog-box .container .device-placeholder {
       padding-left: 0;
-      padding-right: 0; }
+      padding-right: 0;
+      width: 300px;
+      height: 150px;
+      margin: 20px;
+      font-size: 60px; }
+      .audio-capture-dialog-box .container .device-placeholder .fa-stack {
+        height: 150px; }
+    .audio-capture-dialog-box .container .volume-indicator {
+      font-size: 2em; }
     .audio-capture-dialog-box .container AUDIO {
-      width: 100%; }
+      display: block;
+      width: 300px;
+      margin: 20px; }
   .audio-capture-dialog-box .controls {
+    display: flex;
     flex: 1 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
-    border-top: 1px solid #808080; }
-    .audio-capture-dialog-box .controls .buttons {
-      float: right; }
-    .audio-capture-dialog-box .controls .duration-indiactor {
-      margin-top: 0.65em;
-      float: left; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
+    .audio-capture-dialog-box .controls .left {
+      flex: 1 0 auto; }
+      .audio-capture-dialog-box .controls .left .duration-indicator {
+        margin-top: 0.65em; }
+    .audio-capture-dialog-box .controls .right {
+      flex: 1 0 auto;
+      text-align: right; }
   .single-col .audio-capture-dialog-box {
-    width: 100%;
-    max-width: none; }
+    max-width: 100%; }
 .video-capture-dialog-box {
   display: flex;
   flex-direction: column;
@@ -921,42 +986,36 @@ LABEL.push-button {
   .video-capture-dialog-box .container {
     flex: 1 1 auto;
     overflow: hidden;
-    margin-bottom: 0.2em;
-    position: relative; }
-    .video-capture-dialog-box .container .live-video, .video-capture-dialog-box .container .preview {
-      position: absolute;
-      left: 0;
-      bottom: 0;
-      right: 0;
+    margin-bottom: 0.2em; }
+    .video-capture-dialog-box .container VIDEO {
       display: block; }
     .video-capture-dialog-box .container .preview ::-webkit-media-controls-start-playback-button {
       display: none; }
     .single-col .video-capture-dialog-box .container .preview ::-webkit-media-controls-download-button {
       display: none; }
-    .video-capture-dialog-box .container .spacer {
-      display: block;
-      visibility: hidden; }
-      .single-col .video-capture-dialog-box .container .spacer {
-        width: 100%; }
   .video-capture-dialog-box .controls {
-    display: block;
+    display: flex;
     flex: 1 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
-    border-top: 1px solid #808080; }
-    .video-capture-dialog-box .controls .device-selector {
-      float: left; }
-    .video-capture-dialog-box .controls .buttons {
-      float: right; }
-    .video-capture-dialog-box .controls .duration-indiactor {
-      float: left;
-      margin-top: 0.65em; }
-    .video-capture-dialog-box .controls:after {
-      content: "";
-      display: table;
-      clear: both; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
+    .video-capture-dialog-box .controls .left {
+      flex: 1 0 0; }
+      .video-capture-dialog-box .controls .left .duration-indicator {
+        margin-top: 0.65em; }
+    .video-capture-dialog-box .controls .center {
+      flex: 1 0 0;
+      text-align: center; }
+      .video-capture-dialog-box .controls .center .volume-indicator {
+        margin-top: 0.5em; }
+      .video-capture-dialog-box .controls .center:empty {
+        display: none; }
+    .video-capture-dialog-box .controls .right {
+      flex: 1 0 0;
+      text-align: right; }
   .single-col .video-capture-dialog-box {
-    width: 100%;
-    max-width: none; }
+    max-width: 100%; }
+    .single-col .video-capture-dialog-box .controls .center {
+      display: none; }
 .reaction-editor {
   display: flex;
   flex-direction: row;
@@ -1108,7 +1167,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .single-col .app-component-dialog-box {
     width: 100%;
     max-width: none; }
@@ -1322,7 +1381,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .single-col .user-selection-dialog-box {
     width: 100%; }
 .text-field {
@@ -1392,7 +1451,7 @@ LABEL.push-button {
           opacity: 1; }
   .issue-dialog-box .buttons {
     flex: 0 0 auto;
-    border-top: 1px solid #808080;
+    border-top: 1px solid rgba(128, 128, 128, 0.5);
     padding: 0.5em 0 0.2em 0.2em; }
     .issue-dialog-box .buttons .left {
       float: left; }
@@ -2575,14 +2634,14 @@ LABEL.push-button {
   .telephone-number-dialog-box .buttons {
     flex: 0 0 auto;
     padding: 0.5em 0 0.2em 0.2em;
-    border-top: 1px solid #808080;
+    border-top: 1px solid rgba(128, 128, 128, 0.5);
     text-align: right; }
   .single-col .telephone-number-dialog-box {
     width: 100%; }
 .user-view-options .border {
   margin-top: 0.5em;
   padding-top: 0.5em;
-  border-top: 1px dotted #808080; }
+  border-top: 1px dotted rgba(128, 128, 128, 0.5); }
 .user-view {
   background-color: #362a2a;
   border: 2px solid #211a1a;
@@ -2750,7 +2809,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.5em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .system-description-dialog-box .title {
     font-size: 1.4em;
     font-weight: bold;
@@ -2784,7 +2843,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.5em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .project-description-dialog-box .title {
     font-size: 1.4em;
     font-weight: bold;
@@ -2843,7 +2902,7 @@ LABEL.push-button {
   .mobile-setup-dialog-box .buttons {
     flex: 0 0 auto;
     padding: 0.5em 0 0.2em 0.2em;
-    border-top: 1px solid #808080;
+    border-top: 1px solid rgba(128, 128, 128, 0.5);
     text-align: right; }
 .project-management-dialog-box {
   display: flex;
@@ -2868,7 +2927,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.4em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .single-col .project-management-dialog-box {
     width: 100%;
     max-width: none; }
@@ -3167,7 +3226,7 @@ LABEL.push-button {
     flex: 0 0 auto;
     padding: 0.5em 0 0.2em 0.2em;
     text-align: right;
-    border-top: 1px solid #808080; }
+    border-top: 1px solid rgba(128, 128, 128, 0.5); }
   .membership-request-dialog-box .title {
     font-size: 1.4em;
     font-weight: bold;
@@ -3379,7 +3438,7 @@ LABEL.push-button {
     padding: 0.35em 0 0.2em 0.2em; }
   .activation-dialog-box .buttons {
     flex: 0 0 auto;
-    border-top: 1px solid #808080;
+    border-top: 1px solid rgba(128, 128, 128, 0.5);
     padding: 0.5em 0 0.2em 0.2em; }
     .activation-dialog-box .buttons .left {
       float: left; }

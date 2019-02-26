@@ -1,5 +1,4 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
 import * as ExternalDataUtils from 'objects/utils/external-data-utils';
 
 const emptyArray = [];
@@ -12,7 +11,7 @@ const emptyArray = [];
  *
  * @return {Promise<Server>}
  */
-function findServer(db, id) {
+async function findServer(db, id) {
     return db.findOne({
         schema: 'global',
         table: 'server',
@@ -29,7 +28,7 @@ function findServer(db, id) {
  *
  * @return {Promise<Array<Server>>}
  */
-function findAllServers(db, minimum) {
+async function findAllServers(db, minimum) {
     return db.find({
         schema: 'global',
         table: 'server',
@@ -45,15 +44,15 @@ function findAllServers(db, minimum) {
  *
  * @return {Promise<Array<Server>>}
  */
-function findServersOfRepos(db, repos) {
-    var ids = _.filter(_.map(repos, (repo) => {
-        var link = ExternalDataUtils.findLinkByServerType(repo, repo.type);
+async function findServersOfRepos(db, repos) {
+    let ids = _.filter(_.map(repos, (repo) => {
+        let link = ExternalDataUtils.findLinkByServerType(repo, repo.type);
         if (link) {
             return link.server_id;
         }
     }));
     if (_.isEmpty(ids)) {
-        return Promise.resolve(emptyArray);
+        return emptyArray;
     }
     ids = _.sortBy(_.uniq(ids));
     return db.find({

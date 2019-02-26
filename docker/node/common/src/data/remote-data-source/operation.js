@@ -6,12 +6,15 @@ class Operation {
         if (location.schema !== 'local') {
             this.address =  location.address;
         }
+        this.local = (location.schema === 'local');
         this.schema = location.schema;
         this.table = location.table;
+        this.canceled = false;
+        this.failed = false;
+        this.error = null;
         this.startTime = null;
         this.finishTime = null;
         this.results = [];
-        this.promise = null;
         this.by = (byComponent) ? [ byComponent ] : [];
     }
 
@@ -21,7 +24,7 @@ class Operation {
      * @return {Object}
      */
     getLocation() {
-        if (this.isLocal()) {
+        if (this.local) {
             return _.pick(this, 'schema', 'table');
         } else {
             return _.pick(this, 'address', 'schema', 'table');
@@ -46,15 +49,6 @@ class Operation {
             return false;
         }
         return true;
-    }
-
-    /**
-     * Return true if the operation is concerns only locally stored data
-     *
-     * @return {Boolean}
-     */
-    isLocal() {
-        return (this.schema === 'local');
     }
 
     /**
@@ -85,6 +79,19 @@ class Operation {
      */
     cancel() {
         this.canceled = true;
+    }
+
+    /**
+     * [fail description]
+     *
+     * @param  {[type]} err
+     *
+     * @return {[type]}
+     */
+    fail(err) {
+        this.finish(undefined);
+        this.failed = true;
+        this.error = err;
     }
 
     /**

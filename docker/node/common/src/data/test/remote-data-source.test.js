@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import Promise from 'bluebird';
+import Bluebird from 'bluebird';
 import Moment from 'moment';
 import Chai, { expect } from 'chai';
 import ChaiAsPromised from 'chai-as-promised';
@@ -29,7 +29,7 @@ describe('RemoteDataSource', function() {
         },
         prefetching: false,
         sessionRetryInterval: 100,
-        cacheValidation: false,
+        cacheValidation: true,
         cache,
     };
     let dataSource = new RemoteDataSource(dataSourceOptions);
@@ -39,43 +39,37 @@ describe('RemoteDataSource', function() {
     })
 
     describe('#beginSession()', function() {
-        it('should initiate a session', function() {
+        it('should initiate a session', async function() {
             let location = { address: 'http://mordor.me' };
             let session = { handle: 'abcdefg' };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    expect(method).to.match(/post/i);
-                    expect(url).to.contain(location.address);
-                    expect(payload).to.have.property('area', 'client');
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/post/i);
+                expect(url).to.contain(location.address);
+                expect(payload).to.have.property('area', 'client');
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then((result) => {
-                expect(result).to.have.property('system').that.deep.equals(system);
-                expect(result).to.have.property('servers').that.deep.equals(servers);
-            });
+            let result = await dataSource.beginSession(location, 'client');
+            expect(result).to.have.property('system').that.deep.equals(system);
+            expect(result).to.have.property('servers').that.deep.equals(servers);
         })
-        it('should return a fulfilled promise when session was created already', function() {
+        it('should return a fulfilled promise when session was created already', async function() {
             let location = { address: 'http://rohan.me' };
             let session = { handle: 'abcdefg' };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then((result) => {
-                let promise = dataSource.beginSession(location, 'client');
-                expect(promise.isFulfilled()).to.be.true;
-            });
+            let promise1 = dataSource.beginSession(location, 'client');
+            let promise2 = dataSource.beginSession(location, 'client');
+            expect(promise1).to.equal(promise2);
         })
     })
     describe('#checkAuthorization()', function() {
-        it('should fire authorization event when remote server indicates session is authorized', function() {
-            let authorizationEventPromise = new ManualPromise;
+        it('should fire authorization event when remote server indicates session is authorized', async function() {
+            let authorizationEventPromise = ManualPromise();
             dataSource.addEventListener('authorization', authorizationEventPromise.resolve);
             let location = { address: 'http://isengard.me' };
             let session = { handle: 'abcdefg' };
@@ -86,67 +80,56 @@ describe('RemoteDataSource', function() {
             };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                expect(dataSource.hasAuthorization(location)).to.be.false;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        expect(method).to.match(/get/i);
-                        expect(payload).to.have.property('handle', session.handle);
-                        return { session: sessionLater };
-                    });
-                };
-                return dataSource.checkAuthorization(location).then((authorized) => {
-                    expect(authorized).to.be.true;
-                    expect(dataSource.hasAuthorization(location)).to.be.true;
-                    return authorizationEventPromise.timeout(1000);
-                }).then((evt) => {
-                    expect(evt).to.have.property('session');
-                    expect(evt.session).to.have.property('token');
-                    expect(evt.session).to.have.property('user_id');
-                    expect(evt.session).to.have.property('etime');
-                });
-            });
+            await dataSource.beginSession(location, 'client');
+            expect(dataSource.hasAuthorization(location)).to.be.false;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/get/i);
+                expect(payload).to.have.property('handle', session.handle);
+                return { session: sessionLater };
+            };
+            let authorized = await dataSource.checkAuthorization(location);
+            expect(authorized).to.be.true;
+            expect(dataSource.hasAuthorization(location)).to.be.true;
+            let evt = await authorizationEventPromise;
+            expect(evt).to.have.property('session');
+            expect(evt.session).to.have.property('token');
+            expect(evt.session).to.have.property('user_id');
+            expect(evt.session).to.have.property('etime');
         })
-        it('should simply return false when session is not authorized', function() {
-            let expirationEventPromise = new ManualPromise;
-            let violationEventPromise = new ManualPromise;
+        it('should simply return false when session is not authorized', async function() {
+            let expirationEventPromise = ManualPromise();
+            let violationEventPromise = ManualPromise();
             dataSource.addEventListener('expiration', expirationEventPromise.resolve);
             dataSource.addEventListener('violation', violationEventPromise.resolve);
             let location = { address: 'http://dunland.me' };
             let session = { handle: 'abcdefg' };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                expect(dataSource.hasAuthorization(location)).to.be.false;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        return {};
-                    });
-                };
-                return dataSource.checkAuthorization(location).then((authorized) => {
-                    expect(dataSource.hasAuthorization(location)).to.be.false;
-                    expect(authorized).to.be.false;
-
-                    // shouldn't trigger event
-                    return expect(Promise.race([ expirationEventPromise, violationEventPromise ]).timeout(200))
-                        .to.eventually.be.rejectedWith(Promise.TimeoutError)
-                });
-            });
+            await dataSource.beginSession(location, 'client');
+            expect(dataSource.hasAuthorization(location)).to.be.false;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return {};
+            };
+            let authorized = await dataSource.checkAuthorization(location);
+            expect(dataSource.hasAuthorization(location)).to.be.false;
+            expect(authorized).to.be.false;
+            let result = await Bluebird.race([
+                expirationEventPromise,
+                violationEventPromise,
+                Bluebird.resolve('no event').delay(200)
+            ]);
+            expect(result).to.equal('no event');
         })
     })
     describe('#authenticate()', function() {
-        it('should trigger authorization event when server accepts username/password', function() {
-            let authorizationEventPromise = new ManualPromise;
+        it('should trigger authorization event when server accepts username/password', async function() {
+            let authorizationEventPromise = ManualPromise();
             dataSource.addEventListener('authorization', authorizationEventPromise.resolve);
             let location = { address: 'http://mdoom.mordor.me' };
             let session = { handle: 'abcdefg' };
@@ -159,42 +142,35 @@ describe('RemoteDataSource', function() {
             let servers = [ { id: 1, type: 'gitlab' } ];
             let username = 'frodo';
             let password = 'precious';
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                expect(dataSource.hasAuthorization(location)).to.be.false;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        expect(method).to.match(/post/i);
-                        expect(payload).to.have.property('handle', session.handle);
-                        expect(payload).to.have.property('username', username);
-                        expect(payload).to.have.property('password', password);
-                        return { session: sessionLater };
-                    });
-                };
-                let credentials = {
-                    type: 'password',
-                    username,
-                    password
-                };
-                return dataSource.authenticate(location, credentials).then(() => {
-                    expect(dataSource.hasAuthorization(location)).to.be.true;
-                    return authorizationEventPromise;
-                }).then((evt) => {
-                    expect(evt).to.have.property('session');
-                    expect(evt.session).to.have.property('token');
-                    expect(evt.session).to.have.property('user_id');
-                    expect(evt.session).to.have.property('etime');
-                });
-            });
+            await dataSource.beginSession(location, 'client');
+            expect(dataSource.hasAuthorization(location)).to.be.false;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/post/i);
+                expect(payload).to.have.property('handle', session.handle);
+                expect(payload).to.have.property('username', username);
+                expect(payload).to.have.property('password', password);
+                return { session: sessionLater };
+            };
+            let credentials = {
+                type: 'password',
+                username,
+                password
+            };
+            await dataSource.authenticate(location, credentials);
+            expect(dataSource.hasAuthorization(location)).to.be.true;
+            let evt = await authorizationEventPromise;
+            expect(evt).to.have.property('session');
+            expect(evt.session).to.have.property('token');
+            expect(evt.session).to.have.property('user_id');
+            expect(evt.session).to.have.property('etime');
         })
-        it('should reject when username/password are wrong, with error object containing information sent by server', function() {
-            let changeEventPromise = new ManualPromise;
-            let expirationEventPromise = new ManualPromise;
-            let violationEventPromise = new ManualPromise;
+        it('should reject when username/password are wrong, with error object containing information sent by server', async function() {
+            let changeEventPromise = ManualPromise();
+            let expirationEventPromise = ManualPromise();
+            let violationEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             dataSource.addEventListener('expiration', expirationEventPromise.resolve);
             dataSource.addEventListener('violation', violationEventPromise.resolve)
@@ -204,40 +180,40 @@ describe('RemoteDataSource', function() {
             let servers = [ { id: 1, type: 'gitlab' } ];
             let username = 'frodo';
             let password = 'precious';
-            let error = new HTTPError(401, {
-                message: 'username/password are wrong',
-                reason: 'dark-magic',
-            });
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
+            };
+            await dataSource.beginSession(location, 'client');
+            expect(dataSource.hasAuthorization(location)).to.be.false;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                throw new HTTPError(401, {
+                    message: 'username/password are wrong',
+                    reason: 'dark-magic',
                 });
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                expect(dataSource.hasAuthorization(location)).to.be.false;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        throw error;
-                    });
-                };
-                let credentials = {
-                    type: 'password',
-                    username,
-                    password
-                };
-                return expect(dataSource.authenticate(location, credentials))
-                    .to.eventually.be.rejectedWith(Error)
-                    .that.has.property('reason', 'dark-magic');
-            }).then(() => {
-                let anyEventPromise = Promise.race([ changeEventPromise, expirationEventPromise, violationEventPromise ]).timeout(100);
-                return expect(anyEventPromise)
-                    .to.eventually.be.rejectedWith(Promise.TimeoutError);
-            });
+            let credentials = {
+                type: 'password',
+                username,
+                password
+            };
+            try {
+                await dataSource.authenticate(location, credentials);
+                expect.fail();
+            } catch (err) {
+                expect(err).to.have.property('reason', 'dark-magic');
+            }
+            let result = await Promise.race([
+                changeEventPromise,
+                expirationEventPromise,
+                violationEventPromise,
+                Bluebird.resolve('no event').delay(100)
+            ]);
+            expect(result).to.equal('no event');
         })
-        it('should trigger change event to restart session when failure is other than 401 Unauthorized', function() {
-            let changeEventPromise = new ManualPromise;
-            let expirationEventPromise = new ManualPromise;
-            let violationEventPromise = new ManualPromise;
+        it('should trigger change event to restart session when failure is other than 401 Unauthorized', async function() {
+            let changeEventPromise = ManualPromise();
+            let expirationEventPromise = ManualPromise();
+            let violationEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             dataSource.addEventListener('expiration', expirationEventPromise.resolve);
             dataSource.addEventListener('violation', violationEventPromise.resolve)
@@ -247,95 +223,74 @@ describe('RemoteDataSource', function() {
             let servers = [ { id: 1, type: 'gitlab' } ];
             let username = 'frodo';
             let password = 'precious';
-            let error = new HTTPError(404, {
-                message: 'Session has disappeared!',
-                reason: 'one-ring',
-            });
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
+            };
+            await dataSource.beginSession(location, 'client');
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                throw new HTTPError(404, {
+                    message: 'Session has disappeared!',
+                    reason: 'one-ring',
                 });
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        throw error;
-                    });
-                };
-                let credentials = {
-                    type: 'password',
-                    username,
-                    password
-                };
-                return expect(dataSource.authenticate(location, credentials))
-                    .to.eventually.be.rejected;
-            }).then(() => {
-                Promise.race([ changeEventPromise, expirationEventPromise, violationEventPromise ]).then((evt) => {
-                    expect(evt).to.have.property('type', 'change');
-                });
-            });
+            let credentials = {
+                type: 'password',
+                username,
+                password
+            };
+            try {
+                await dataSource.authenticate(location, credentials)
+                expect.fail();
+            } catch (err) {
+                expect(err).to.be.instanceOf(Error);
+            }
+            let evt = await Promise.race([ changeEventPromise, expirationEventPromise, violationEventPromise ]);
+            expect(evt).to.have.property('type', 'change');
         })
     })
     describe('#endSession()', function() {
-        it('should end a session', function() {
+        it('should end a session', async function() {
             let location = { address: 'http://helms-deep.me' };
             let session = { handle: 'abcdefg' };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
             let username = 'frodo';
             let password = 'precious';
-            let error = new HTTPError(404, {
-                message: 'Session has disappeared!',
-                reason: 'one-ring',
-            });
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        expect(method).to.match(/delete/i);
-                        expect(payload).to.property('handle', session.handle);
-                        return {};
-                    });
-                };
-                return dataSource.endSession(location).then(() => {
-                    expect(dataSource.hasAuthorization(location)).to.be.false;
-                });
-            });
+            await dataSource.beginSession(location, 'client');
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/delete/i);
+                expect(payload).to.property('handle', session.handle);
+                return {};
+            };
+            await dataSource.endSession(location);
+            expect(dataSource.hasAuthorization(location)).to.be.false;
         })
     })
     describe('#getOAuthURL()', function() {
-        it('should return a URL for logging in through OAuth', function() {
+        it('should return a URL for logging in through OAuth', async function() {
             let location = { address: 'http://helms-deep.me' };
             let session = { handle: 'abcdefg' };
             let system = { details: { en: 'Test' } };
             let servers = [ { id: 1, type: 'gitlab' } ];
             let username = 'frodo';
             let password = 'precious';
-            let error = new HTTPError(404, {
-                message: 'Session has disappeared!',
-                reason: 'one-ring',
-            });
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    return { session, system, servers };
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                return { session, system, servers };
             };
-            return dataSource.beginSession(location, 'client').then(() => {
-                let url1 = dataSource.getOAuthURL(location, servers[0]);
-                let url2 = dataSource.getOAuthURL(location, servers[0], 'test');
-                let url3 = dataSource.getOAuthURL(location, servers[0], 'activation');
-                expect(url1).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg');
-                expect(url2).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&test=1');
-                expect(url3).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&activation=1');
-            });
+            await dataSource.beginSession(location, 'client');
+            let url1 = dataSource.getOAuthURL(location, servers[0]);
+            let url2 = dataSource.getOAuthURL(location, servers[0], 'test');
+            let url3 = dataSource.getOAuthURL(location, servers[0], 'activation');
+            expect(url1).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg');
+            expect(url2).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&test=1');
+            expect(url3).to.equal('http://helms-deep.me/srv/session/gitlab/?sid=1&handle=abcdefg&activation=1');
         })
     })
     describe('#restoreAuthorization()', function() {
-        it('should add a session', function() {
+        it('should add a session', async function() {
             let session = {
                 handle: 'abcdefg',
                 address: 'http://minas-tirith.me',
@@ -350,7 +305,7 @@ describe('RemoteDataSource', function() {
             expect(restored).to.be.true;
             expect(dataSource.hasAuthorization(location)).to.be.true;
         })
-        it('should not add an expired session', function() {
+        it('should not add an expired session', async function() {
             let session = {
                 handle: 'abcdefg',
                 address: 'http://angmar.me',
@@ -367,7 +322,7 @@ describe('RemoteDataSource', function() {
         })
     })
     describe('#start()', function() {
-        it('should return the user id', function() {
+        it('should return the user id', async function() {
             let session = {
                 handle: 'abcdefg',
                 address: 'http://minas-tirith.me',
@@ -379,24 +334,24 @@ describe('RemoteDataSource', function() {
             let location = { address: session.address, schema: 'global' };
             let restored = dataSource.restoreAuthorization(location, session);
             expect(restored).to.be.true;
-            return dataSource.start(location).then((userID) => {
-                expect(userID).to.equal(session.user_id);
-            }).timeout(100);
+            let userID = await dataSource.start(location);
+            expect(userID).to.equal(session.user_id);
         })
-        it('should reject with 401 Unauthorized error when there is no session', function() {
+        it('should reject with 401 Unauthorized error when there is no session', async function() {
             dataSource.addEventListener('authentication', (evt) => {
                 evt.preventDefault();
             });
             let location = { address: 'http://minas-morgul.me', schema: 'global' };
-            return dataSource.start(location).catch((err) => {
-                return err;
-            }).then((err) => {
+            try {
+                await dataSource.start(location);
+                expect.fail();
+            } catch (err) {
                 expect(err).to.have.property('statusCode', 401);
-            }).timeout(100);
+            }
         })
     })
     describe('#find()', function() {
-        it('should request objects from remote server', function() {
+        it('should request objects from remote server', async function() {
             let query = {
                 address: 'http://minas-tirith.me',
                 schema: 'global',
@@ -410,32 +365,29 @@ describe('RemoteDataSource', function() {
             ]
             let discovery = 0;
             let retrieval = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    expect(method).to.match(/post/i);
-                    if (/discovery/.test(url)) {
-                        discovery++;
-                        expect(payload).to.have.property('id', 3);
-                        return {
-                            ids: _.map(objects, 'id'),
-                            gns: _.map(objects, 'gn')
-                        };
-                    } else if (/retrieval/.test(url)) {
-                        retrieval++;
-                        expect(payload).to.have.property('ids').that.deep.equal([ 3 ]);
-                        return _.filter(objects, (object) => {
-                            return _.includes(payload.ids, object.id);
-                        });
-                    }
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/post/i);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    expect(payload).to.have.property('id', 3);
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    expect(payload).to.have.property('ids').that.deep.equal([ 3 ]);
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
+                    });
+                }
             };
-            return dataSource.find(query).then((users) => {
-                expect(discovery).to.equal(1);
-                expect(retrieval).to.equal(1);
-                expect(users[0]).to.have.property('id', objects[0].id);
-            });
+            let users = await dataSource.find(query);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
+            expect(users[0]).to.have.property('id', objects[0].id);
         })
-        it('should reuse results from a previous search', function() {
+        it('should reuse results from a previous search', async function() {
             let query = {
                 address: 'http://minas-tirith.me',
                 schema: 'global',
@@ -449,34 +401,30 @@ describe('RemoteDataSource', function() {
             ]
             let discovery = 0;
             let retrieval = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    expect(method).to.match(/post/i);
-                    if (/discovery/.test(url)) {
-                        discovery++;
-                        expect(payload).to.have.property('id', 1);
-                        return {
-                            ids: _.map(objects, 'id'),
-                            gns: _.map(objects, 'gn')
-                        };
-                    } else if (/retrieval/.test(url)) {
-                        retrieval++;
-                        expect(payload).to.have.property('ids').that.deep.equal([ 1 ]);
-                        return _.filter(objects, (object) => {
-                            return _.includes(payload.ids, object.id);
-                        });
-                    }
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/post/i);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    expect(payload).to.have.property('id', 1);
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    expect(payload).to.have.property('ids').that.deep.equal([ 1 ]);
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
+                    });
+                }
             };
-            return dataSource.find(query).then((users) => {
-                expect(users[0]).to.have.property('id', objects[0].id);
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(1);
-                    expect(retrieval).to.equal(1);
-                });
-            });
+            let users1 = await dataSource.find(query);
+            expect(users1[0]).to.have.property('id', objects[0].id);
+            let users2 = await dataSource.find(query);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
         })
-        it('should return objects from cache without hitting remote server when the object count matches and the objects are retrieved recently', function() {
+        it('should return objects from cache without hitting remote server when the object count matches and the objects are retrieved recently', async function() {
             // put objects into cache first
             let location = { address: 'http://moria.me', schema: 'global', table: 'user' };
             let rtime = Moment().toISOString();
@@ -484,86 +432,79 @@ describe('RemoteDataSource', function() {
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {
-                        id: [ 1, 2 ]
-                    }
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        expect(method).to.match(/post/i);
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn')
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return _.filter(objects, (object) => {
-                                return _.includes(payload.ids, object.id);
-                            });
-                        }
+            await cache.save(location, objects);
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {
+                    id: [ 1, 2 ]
+                }
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                expect(method).to.match(/post/i);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(0);
-                    expect(retrieval).to.equal(0);
-                    expect(users[0]).to.have.property('id', objects[0].id);
-                    expect(users[1]).to.have.property('id', objects[1].id);
-                });
-            });
+                }
+            };
+            let users = await dataSource.find(query);
+            expect(discovery).to.equal(0);
+            expect(retrieval).to.equal(0);
+            expect(users[0]).to.have.property('id', objects[0].id);
+            expect(users[1]).to.have.property('id', objects[1].id);
         })
-        it('should return objects from cache then perform a server-side check when cached objects might be stale', function() {
+        it('should return objects from cache then perform a server-side check when cached objects might be stale', async function() {
             let location = { address: 'http://level2.moria.me', schema: 'global', table: 'user' };
             let rtime = Moment().subtract(1, 'day').toISOString();
             let objects = [
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {
-                        id: [ 1, 2 ]
-                    }
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn')
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return _.filter(objects, (object) => {
-                                return _.includes(payload.ids, object.id);
-                            });
-                        }
+            await cache.save(location, objects);
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {
+                    id: [ 1, 2 ]
+                },
+                blocking: 'stale',
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(1);
-                    expect(retrieval).to.equal(0);
-                    expect(users[0]).to.have.property('id', objects[0].id);
-                    expect(users[1]).to.have.property('id', objects[1].id);
-                });
-            });
+                }
+            };
+            let users = await dataSource.find(query);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(0);
+            expect(users[0]).to.have.property('id', objects[0].id);
+            expect(users[1]).to.have.property('id', objects[1].id);
         })
-        it('should update object whose gn has changed', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should update object whose gn has changed', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level3.moria.me', schema: 'global', table: 'user' };
             let rtime = Moment().subtract(1, 'day').toISOString();
@@ -571,62 +512,56 @@ describe('RemoteDataSource', function() {
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                // bump gn
-                objects[1] = _.cloneDeep(objects[1]);
-                objects[1].gn++;
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {
-                        id: [ 1, 2 ]
-                    }
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.delay(50).then(() => {
-                        return Promise.try(() => {
-                            if (/discovery/.test(url)) {
-                                discovery++;
-                                return {
-                                    ids: _.map(objects, 'id'),
-                                    gns: _.map(objects, 'gn')
-                                };
-                            } else if (/retrieval/.test(url)) {
-                                expect(payload).to.have.property('ids').that.deep.equal([ objects[1].id ])
-                                retrieval++;
-                                return _.filter(objects, (object) => {
-                                    return _.includes(payload.ids, object.id);
-                                });
-                            }
-                        });
+            await cache.save(location, objects);
+            // bump gn
+            objects[1] = _.cloneDeep(objects[1]);
+            objects[1].gn++;
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {
+                    id: [ 1, 2 ]
+                }
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    expect(payload).to.have.property('ids').that.deep.equal([ objects[1].id ])
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    // the cached objects are returned first
-                    expect(discovery).to.equal(0);
-                    expect(retrieval).to.equal(0);
-                    expect(users).to.have.property('length', 2);
-                    expect(users[1]).to.have.property('id', objects[1].id);
-                    expect(users[1]).to.have.property('gn', objects[1].gn - 1);
+                }
+            };
+            let users1 = await dataSource.find(query);
+            // the cached objects are returned first
+            expect(discovery).to.equal(0);
+            expect(retrieval).to.equal(0);
+            expect(users1).to.have.property('length', 2);
+            expect(users1[1]).to.have.property('id', objects[1].id);
+            expect(users1[1]).to.have.property('gn', objects[1].gn - 1);
 
-                    // wait for change event
-                    return changeEventPromise.timeout(1000);
-                }).then(() => {
-                    // second query should yield updated object
-                    return dataSource.find(query).then((users) => {
-                        expect(discovery).to.equal(1);
-                        expect(retrieval).to.equal(1);
-                        expect(users[1]).to.have.property('id', objects[1].id);
-                        expect(users[1]).to.have.property('gn', objects[1].gn);
-                    });
-                });
-            });
+            // wait for change event
+            await changeEventPromise;
+
+            // second query should yield updated object
+            let users2 = await dataSource.find(query);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
+            expect(users2[1]).to.have.property('id', objects[1].id);
+            expect(users2[1]).to.have.property('gn', objects[1].gn);
         })
-        it('should return objects from cache on an open-ended search, perform discovery, then conclude that the initial result set was correct', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should return objects from cache on an open-ended search, perform discovery, then conclude that the initial result set was correct', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level4.moria.me', schema: 'global', table: 'user' };
             let rtime = Moment().toISOString();
@@ -634,51 +569,48 @@ describe('RemoteDataSource', function() {
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {},
-                    blocking: 'never',
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.delay(50).then(() => {
-                        return Promise.try(() => {
-                            if (/discovery/.test(url)) {
-                                discovery++;
-                                return {
-                                    ids: _.map(objects, 'id'),
-                                    gns: _.map(objects, 'gn')
-                                };
-                            } else if (/retrieval/.test(url)) {
-                                retrieval++;
-                                return _.filter(objects, (object) => {
-                                    return _.includes(payload.ids, object.id);
-                                });
-                            }
-                        });
+            await cache.save(location, objects);
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {},
+                blocking: 'never',
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/discovery/.test(url)) {
+                    await Bluebird.delay(50);
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(0);
-                    expect(retrieval).to.equal(0);
-                    expect(users).to.have.property('length', 2);
-                    return Promise.delay(100);
-                }).then(() => {
-                    expect(discovery).to.equal(1);
-                    expect(retrieval).to.equal(0);
+                }
+            };
+            let users1 = await dataSource.find(query);
+            expect(discovery).to.equal(0);
+            expect(retrieval).to.equal(0);
+            expect(users1).to.have.property('length', 2);
 
-                    // no change event should be emitted
-                    return expect(changeEventPromise.timeout(500))
-                        .to.eventually.be.rejectedWith(Promise.TimeoutError);
-                });
-            });
+            await Bluebird.delay(100);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(0);
+
+            let result = await Promise.race([
+                changeEventPromise,
+                Bluebird.resolve('no event').delay(500)
+            ]);
+            expect(result).to.equal('no event');
         })
-        it('should return objects from cache, perform discovery, then retrieve an additional object', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should return objects from cache, perform discovery, then retrieve an additional object', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level5.moria.me', schema: 'global', table: 'user' };
             let rtime = Moment().toISOString();
@@ -686,51 +618,45 @@ describe('RemoteDataSource', function() {
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                objects.push({ id: 3, gn: 1, username: 'sauron' });
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {},
-                    blocking: 'never'
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.delay(50).then(() => {
-                        return Promise.try(() => {
-                            if (/discovery/.test(url)) {
-                                discovery++;
-                                return {
-                                    ids: _.map(objects, 'id'),
-                                    gns: _.map(objects, 'gn')
-                                };
-                            } else if (/retrieval/.test(url)) {
-                                retrieval++;
-                                return _.filter(objects, (object) => {
-                                    return _.includes(payload.ids, object.id);
-                                });
-                            }
-                        });
+            await cache.save(location, objects);
+            objects.push({ id: 3, gn: 1, username: 'sauron' });
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {},
+                blocking: 'never'
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(0);
-                    expect(retrieval).to.equal(0);
-                    expect(users).to.have.property('length', 2);
-                    return changeEventPromise.timeout(1000);
-                }).then((evt) => {
-                    return dataSource.find(query).then((users) => {
-                        expect(discovery).to.equal(1);
-                        expect(retrieval).to.equal(1);
-                        expect(users).to.have.property('length', 3);
-                    });
-                });
-            });
+                }
+            };
+            let users1 = await dataSource.find(query);
+            expect(discovery).to.equal(0);
+            expect(retrieval).to.equal(0);
+            expect(users1).to.have.property('length', 2);
+            await changeEventPromise;
+
+            let users2 = await dataSource.find(query);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
+            expect(users2).to.have.property('length', 3);
         })
-        it('should not perform remote search when there is no connection', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should not perform remote search when there is no connection', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             dataSource.deactivate();
             let location = { address: 'http://level6.moria.me', schema: 'global', table: 'user' };
@@ -739,126 +665,113 @@ describe('RemoteDataSource', function() {
                 { id: 1, gn: 70, username: 'gandolf', rtime },
                 { id: 2, gn: 3, username: 'bilbo', rtime },
             ];
-            return cache.save(location, objects).then(() => {
-                objects.push({ id: 3, gn: 1, username: 'sauron' });
-                let query = {
-                    address: location.address,
-                    schema: 'global',
-                    table: 'user',
-                    criteria: {}
-                };
-                let discovery = 0;
-                let retrieval = 0;
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.delay(50).then(() => {
-                        return Promise.try(() => {
-                            if (/discovery/.test(url)) {
-                                discovery++;
-                                return {
-                                    ids: _.map(objects, 'id'),
-                                    gns: _.map(objects, 'gn')
-                                };
-                            } else if (/retrieval/.test(url)) {
-                                retrieval++;
-                                return _.filter(objects, (object) => {
-                                    return _.includes(payload.ids, object.id);
-                                });
-                            }
-                        });
+            await cache.save(location, objects);
+            objects.push({ id: 3, gn: 1, username: 'sauron' });
+            let query = {
+                address: location.address,
+                schema: 'global',
+                table: 'user',
+                criteria: {}
+            };
+            let discovery = 0;
+            let retrieval = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return _.filter(objects, (object) => {
+                        return _.includes(payload.ids, object.id);
                     });
-                };
-                return dataSource.find(query).then((users) => {
-                    expect(discovery).to.equal(0);
-                    expect(retrieval).to.equal(0);
-                    expect(users).to.have.property('length', 2);
-                    return expect(changeEventPromise.timeout(200))
-                        .to.eventually.be.rejectedWith(Promise.TimeoutError);
-                });
-            }).finally(() => {
-                dataSource.activate();
-            });
+                }
+            };
+            let users = await dataSource.find(query);
+            expect(discovery).to.equal(0);
+            expect(retrieval).to.equal(0);
+            expect(users).to.have.property('length', 2);
+
+            let result = await Promise.race([
+                changeEventPromise,
+                Bluebird.resolve('no event').delay(200)
+            ]);
+            expect(result).to.equal('no event');
+            dataSource.activate();
         })
     })
     describe('#save()', function() {
-        it('should send an object to remote server and save result to cache', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should send an object to remote server and save result to cache', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level1.misty-mountain.me', schema: 'global', table: 'project' };
             let newObject = { name: 'anduril' };
             let storage = 0, id = 1;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/storage/.test(url)) {
-                            storage++;
-                            expect(method).to.match(/post/i);
-                            expect(payload).to.have.property('objects').that.is.an.array;
-                            return _.map(payload.objects, (object) => {
-                                object = _.clone(object);
-                                if (!object.id) {
-                                    object.id = id++;
-                                }
-                                return object;
-                            });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/storage/.test(url)) {
+                    storage++;
+                    expect(method).to.match(/post/i);
+                    expect(payload).to.have.property('objects').that.is.an.array;
+                    return _.map(payload.objects, (object) => {
+                        object = _.clone(object);
+                        if (!object.id) {
+                            object.id = id++;
                         }
+                        return object;
                     });
-                });
+                }
             };
-            return dataSource.save(location, [ newObject ]).each((object) => {
-                return cache.find(location, { id: object.id }).then((objects) => {
-                    expect(objects).to.have.length(1);
-                });
-            }).then(() => {
-                return changeEventPromise.timeout(1000);
-            }).then((evt) => {
-                expect(evt).to.have.property('type', 'change');
-            });
+            let savedObjects = await dataSource.save(location, [ newObject ]);
+            for (let object of savedObjects) {
+                let cachedObjects = await cache.find(location, { id: object.id });
+                expect(cachedObjects).to.have.length(1);
+            }
+            let evt = await changeEventPromise;
+            expect(evt).to.have.property('type', 'change');
         })
-        it('should update an existing object', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should update an existing object', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level2.misty-mountain.me', schema: 'global', table: 'project' };
             let objects = [
                 { id: 3, name: 'smeagol' }
             ];
-            return cache.save(location, objects).then(() => {
-                let storage = 0;
-                let discovery = 0;
-                let updatedObject = _.clone(objects[0]);
-                updatedObject.name = 'gollum';
-                HTTPRequest.fetch = (method, url, payload, options) => {
-                    return Promise.delay(50).then(() => {
-                        return Promise.try(() => {
-                            if (/storage/.test(url)) {
-                                storage++;
-                                expect(method).to.match(/post/i);
-                                expect(payload).to.have.property('objects').that.is.an.array;
-                                let object = _.clone(payload.objects[0]);
-                                objects[0] = object;
-                                return [ object ];
-                            } else if (/discovery/.test(url)) {
-                                discovery++;
-                                return {
-                                    ids: _.map(objects, 'id'),
-                                    gns: _.map(objects, 'gn')
-                                };
-                            }
-                        });
-                    });
-                };
-                return dataSource.save(location, [ updatedObject ]).each((object) => {
-                    return cache.find(location, { id: object.id }).then((objects) => {
-                        expect(objects).to.have.length(1);
-                        expect(objects[0]).to.have.property('name', updatedObject.name);
-                    });
-                }).then(() => {
-                    return changeEventPromise.timeout(1000);
-                }).then((evt) => {
-                    expect(evt).to.have.property('type', 'change');
-                });
-            });
+            await cache.save(location, objects);
+            let storage = 0;
+            let discovery = 0;
+            let updatedObject = _.clone(objects[0]);
+            updatedObject.name = 'gollum';
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/storage/.test(url)) {
+                    storage++;
+                    expect(method).to.match(/post/i);
+                    expect(payload).to.have.property('objects').that.is.an.array;
+                    let object = _.clone(payload.objects[0]);
+                    objects[0] = object;
+                    return [ object ];
+                } else if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn')
+                    };
+                }
+            };
+            let savedObjects = await dataSource.save(location, [ updatedObject ]);
+            for (let object of savedObjects) {
+                let cachedObjects = await cache.find(location, { id: object.id });
+                expect(cachedObjects).to.have.length(1);
+                expect(cachedObjects[0]).to.have.property('name', updatedObject.name);
+            }
+            let evt = await changeEventPromise;
+            expect(evt).to.have.property('type', 'change');
         })
-        it('should make uncommitted objects available immediately when feature is on', function() {
+        it('should make uncommitted objects available immediately when feature is on', async function() {
             dataSource.options.discoveryFlags = {
                 include_uncommitted: true
             };
@@ -868,34 +781,33 @@ describe('RemoteDataSource', function() {
             let discovery = 0;
             let retrieval = 0;
             let objects = []
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    if (/storage/.test(url)) {
-                        storage++;
-                        expect(method).to.match(/post/i);
-                        expect(payload).to.have.property('objects').that.is.an.array;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/storage/.test(url)) {
+                    storage++;
+                    expect(method).to.match(/post/i);
+                    expect(payload).to.have.property('objects').that.is.an.array;
 
-                        // wait for the search
-                        return preSaveSearchPromise.then(() => {
-                            // return the results only after we've done a search
-                            let object = _.clone(payload.objects[0]);
-                            object.id = id++;
-                            object.gn = 1;
-                            objects.push(object);
-                            return [ object ];
-                        });
-                    } else if (/discovery/.test(url)) {
-                        discovery++;
-                        return {
-                            ids: _.map(objects, 'id'),
-                            gns: _.map(objects, 'gn'),
-                        };
-                    } else if (/retrieval/.test(url)) {
-                        retrieval++;
-                        return objects;
-                    }
-                });
+                    // wait for the search
+                    await presaveSearchPromise;
+
+                    // return the results only after we've done a search
+                    let object = _.clone(payload.objects[0]);
+                    object.id = id++;
+                    object.gn = 1;
+                    objects.push(object);
+                    return [ object ];
+                } else if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                }
             };
+
             // the logic here is a bit convoluted...
             //
             // 1. The first thing that happens is that we call save()
@@ -906,7 +818,7 @@ describe('RemoteDataSource', function() {
             //    the results (the feature we're testing)
             // 5. since save() would replace newObject with the saved version
             //    we want our pseudo-server code above to block until we've
-            //    performed step 4, the reason why it waits for preSaveSearchPromise
+            //    performed step 4, the reason why it waits for presaveSearchPromise
             // 6. once this happens, the pseudo-server code unblocks, and
             //    HTTPRequest.fetch() returns
             // 7. save() now has the object "returned by the server", which is
@@ -914,89 +826,91 @@ describe('RemoteDataSource', function() {
             // 8. save() returns and we can check the results from step 4 now
             //    that we're inside the promise-chain given to Chai
             // 9. then we run the query again and check that the result of step 7
-            let changeEventPromise = new ManualPromise;
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
-            let preSaveSearchPromise = changeEventPromise.then((evt) => {
+            let presaveSearch = async () => {
+                await changeEventPromise;
                 dataSource.removeEventListener('change', changeEventPromise.resolve);
 
                 // perform the query that should yield the object with temporary ID
-                let query = _.assign({ criteria: {} }, location);
+                // blocking needs to be 'never' here, since the remote search will
+                // wait for the save operation to finish (which would wait for the
+                // promise returned by this function)
+                let query = _.assign({ criteria: {}, blocking: 'never' }, location);
                 return dataSource.find(query);
-            });
-            return dataSource.save(location, [ newObject ]).then((objects) => {
-                // the promise belong should fulfill immediately
-                return preSaveSearchPromise.then((projectsImmediately) => {
-                    // project should have a temporary ID
-                    expect(projectsImmediately).to.have.length(1);
-                    expect(projectsImmediately[0]).to.have.property('id').that.is.below(1);
-                });
-            }).then(() => {
-                // this search should not trigger a remote search, since it's
-                // the same as the one performed in the change event handler
-                return dataSource.find(location, {}).then((projectsLater) => {
-                    expect(projectsLater).to.have.length(1);
-                    expect(projectsLater[0]).to.have.property('id').that.is.at.least(1);
-                    expect(discovery).to.equal(1);
-                    expect(retrieval).to.equal(0);
-                });
-            });
+            };
+            let presaveSearchPromise = presaveSearch();
+            let savedObjects = await dataSource.save(location, [ newObject ]);
+            // the promise should fulfill immediately
+            let projectsImmediately = await presaveSearchPromise;
+            // project should have a temporary ID
+            expect(projectsImmediately).to.have.length(1);
+            expect(projectsImmediately[0]).to.have.property('id').that.is.below(1);
+
+            // this search should not trigger a remote search, since it's
+            // the same as the one performed in the change event handler
+            let query = _.assign({ criteria: {}, blocking: true }, location);
+            let projectsLater = await dataSource.find(query);
+            expect(projectsLater).to.have.length(1);
+            expect(projectsLater[0]).to.have.property('id').that.is.at.least(1);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
         })
-        it('should block search on a table until saving is complete', function() {
+        it('should block search on a table until saving is complete', async function() {
             let location = { address: 'http://level4.misty-mountain.me', schema: 'global', table: 'project' };
             let newObject = { name: 'anduril' };
             let storage = 0, id = 1;
             let discovery = 0;
             let retrieval = 0;
             let objects = [];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    if (/storage/.test(url)) {
-                        storage++;
-                        // make object available, then wait a bit
-                        let object = _.clone(payload.objects[0]);
-                        object.id = id++;
-                        object.gn = 1;
-                        objects.push(object);
-                        return Promise.delay(100).then(() => {
-                            return [ object ];
-                        });
-                    } else if (/discovery/.test(url)) {
-                        discovery++;
-                        return {
-                            ids: _.map(objects, 'id'),
-                            gns: _.map(objects, 'gn'),
-                        };
-                    } else if (/retrieval/.test(url)) {
-                        retrieval++;
-                        return objects;
-                    }
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/storage/.test(url)) {
+                    storage++;
+                    // make object available, then wait a bit
+                    let object = _.clone(payload.objects[0]);
+                    object.id = id++;
+                    object.gn = 1;
+                    objects.push(object);
+                    await Bluebird.delay(100);
+                    return [ object ];
+                } else if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                }
             };
             dataSource.save(location, [ newObject ]);
-            return dataSource.find(location, {}).then((projects) => {
-                // it would return two objects--the uncommitted and the committed
-                // one if search is allowed to proceed before before a save() is
-                // finished
-                expect(projects).to.have.length(1);
-            });
+            let projects = await dataSource.find(location, {});
+            // it would return two objects--the uncommitted and the committed
+            // one if search is allowed to proceed before before a save() is
+            // finished
+            expect(projects).to.have.length(1);
         })
-        it('should merge multiple deferred saves', function() {
+        it('should merge multiple deferred saves', async function() {
             let event = null;
             let additionalSavePromises = [];
-            let additionalSavesTriggeredPromise = new ManualPromise;
+            let additionalSavesTriggeredPromise = ManualPromise();
             dataSource.addEventListener('change', () => {
                 let num = additionalSavePromises.length + 1;
                 if (num <= 4) {
                     // load the only object and modify it
                     let query = _.assign({ criteria: {} }, location);
-                    let promise = dataSource.find(query).get(0).then((object) => {
+                    let save = async (num) => {
+                        let objects = await dataSource.find(query);
+                        let object = objects[0];
                         // should still be uncommitted at this point
                         expect(object).to.have.property('id').that.is.below(1);
                         expect(object).to.have.property('uncommitted').that.is.true;
                         object = _.clone(object);
                         object['prop' + num] = num;
                         return dataSource.save(location, [ object ], { delay: 200 });
-                    });
+                    };
+                    let promise = save(num);
                     additionalSavePromises.push(promise);
                 } else {
                     additionalSavesTriggeredPromise.resolve();
@@ -1008,51 +922,47 @@ describe('RemoteDataSource', function() {
             let discovery = 0;
             let retrieval = 0;
             let objects = [];
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    if (/storage/.test(url)) {
-                        storage++;
-                        let object = _.clone(payload.objects[0]);
-                        object.id = id++;
-                        object.gn = 1;
-                        objects.push(object);
-                        return [ object ];
-                    } else if (/discovery/.test(url)) {
-                        discovery++;
-                        return {
-                            ids: _.map(objects, 'id'),
-                            gns: _.map(objects, 'gn'),
-                        };
-                    } else if (/retrieval/.test(url)) {
-                        retrieval++;
-                        return objects;
-                    }
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/storage/.test(url)) {
+                    storage++;
+                    let object = _.clone(payload.objects[0]);
+                    object.id = id++;
+                    object.gn = 1;
+                    objects.push(object);
+                    return [ object ];
+                } else if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                }
             };
-            return dataSource.save(location, [ newObject ], { delay: 200 }).then((objects) => {
-                // initial call should get canceled
-                expect(objects).to.have.length(0);
-            }).then(() => {
-                // wait for addition saves to be triggered
-                return additionalSavesTriggeredPromise.timeout(1000);
-            }).then(() => {
-                return Promise.all(additionalSavePromises);
-            }).then((results) => {
-                expect(storage).to.equal(1);
-                // all but the last should be canceled
-                expect(results[0]).to.have.length(0);
-                expect(results[1]).to.have.length(0);
-                expect(results[2]).to.have.length(0);
-                expect(results[3]).to.have.length(1);
-                let savedObject = results[3][0];
-                expect(savedObject).to.have.property('id').that.is.at.least(1);
-                expect(savedObject).to.have.property('prop1', 1);
-                expect(savedObject).to.have.property('prop2', 2);
-                expect(savedObject).to.have.property('prop3', 3);
-                expect(savedObject).to.have.property('prop4', 4);
-            });
+            let savedObjects = await dataSource.save(location, [ newObject ], { delay: 200 });
+            // initial call should get canceled
+            expect(savedObjects).to.have.length(0);
+
+            // wait for addition saves to be triggered
+            await additionalSavesTriggeredPromise;
+
+            let results = await Promise.all(additionalSavePromises);
+            expect(storage).to.equal(1);
+            // all but the last should be canceled
+            expect(results[0]).to.have.length(0);
+            expect(results[1]).to.have.length(0);
+            expect(results[2]).to.have.length(0);
+            expect(results[3]).to.have.length(1);
+            let savedObject = results[3][0];
+            expect(savedObject).to.have.property('id').that.is.at.least(1);
+            expect(savedObject).to.have.property('prop1', 1);
+            expect(savedObject).to.have.property('prop2', 2);
+            expect(savedObject).to.have.property('prop3', 3);
+            expect(savedObject).to.have.property('prop4', 4);
         })
-        it('should save objects to local schema', function() {
+        it('should save objects to local schema', async function() {
             let location = {
                 schema: 'local',
                 table: 'bob'
@@ -1063,92 +973,87 @@ describe('RemoteDataSource', function() {
                     age: 87
                 }
             };
-            return dataSource.save(location, [ newObject ]).then(() => {
-                cache.reset();
-                return dataSource.find(location).then((objects) => {
-                    expect(objects[0]).to.deep.equal(newObject);
-                });
-            });
+            await dataSource.save(location, [ newObject ]);
+            cache.reset();
+            let objects = await dataSource.find(location);
+            expect(objects[0]).to.deep.equal(newObject);
         })
     })
     describe('#remove()', function() {
-        it('should try to remove an object', function() {
-            let changeEventPromise = new ManualPromise;
+        it('should try to remove an object', async function() {
+            let changeEventPromise = ManualPromise();
             dataSource.addEventListener('change', changeEventPromise.resolve);
             let location = { address: 'http://level1.lonely-mountain.me', schema: 'global', table: 'project' };
             let existingObject = { id: 1, name: 'smaug' };
             let storage = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/storage/.test(url)) {
-                            storage++;
-                            expect(method).to.match(/post/i);
-                            expect(payload).to.have.property('objects').that.is.an.array;
-                            return _.map(payload.objects, (object) => {
-                                expect(object.deleted).to.be.true;
-                                return _.clone(object);
-                            });
-                        }
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/storage/.test(url)) {
+                    storage++;
+                    expect(method).to.match(/post/i);
+                    expect(payload).to.have.property('objects').that.is.an.array;
+                    return _.map(payload.objects, (object) => {
+                        expect(object.deleted).to.be.true;
+                        return _.clone(object);
                     });
-                });
+                }
             };
-            return dataSource.remove(location, [ existingObject ]).then((objects) => {
-                expect(storage).to.equal(1);
-                return changeEventPromise.timeout(1000);
-            }).then((evt) => {
-                expect(evt).to.have.property('type', 'change');
-            });
+            let objects = await dataSource.remove(location, [ existingObject ]);
+            expect(storage).to.equal(1);
+            let evt = await changeEventPromise;
+            expect(evt).to.have.property('type', 'change');
         })
-        it('should keep a delete request in the change queue when there is no connection and send it when connection is restored', function() {
+        it('should keep a delete request in the change queue when there is no connection and send it when connection is restored', async function() {
+            dataSource.options.discoveryFlags = {
+                include_uncommitted: true
+            };
             let location = { address: 'http://level2.lonely-mountain.me', schema: 'global', table: 'project' };
             let objects = [ { id: 1, gn: 2, name: 'smaug' } ];
             let storage = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/storage/.test(url)) {
-                            storage++;
-                            return _.map(payload.objects, (object) => {
-                                return _.clone(object);
-                            });
-                        } else if (/discovery/.test(url)) {
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            return objects;
-                        }
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/storage/.test(url)) {
+                    storage++;
+                    return _.map(payload.objects, (object) => {
+                        return _.clone(object);
                     });
-                });
+                } else if (/discovery/.test(url)) {
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    return objects;
+                }
             };
             // create a search first
             let query = _.extend(location, { criteria: {} });
-            return dataSource.find(query).then((found) => {
-                expect(found).to.have.lengthOf(1);
+            let found1 = await dataSource.find(query);
+            expect(found1).to.have.lengthOf(1);
 
-                // deactivate data source
-                dataSource.deactivate();
-            }).then(() => {
-                // this call will stall
-                return expect(dataSource.remove(location, [ objects[0] ]).timeout(100))
-                    .to.eventually.be.rejectedWith(Promise.TimeoutError);
-            }).then(() => {
-                expect(storage).to.equal(0);
-                return dataSource.find(query).then((found) => {
-                    // merging uncommitted delete into result
-                    expect(found).to.have.lengthOf(0);
-                });
-            }).then(() => {
-                // reactivate data source
-                dataSource.activate();
-                return null;
-            }).delay(200).then(() => {
-                expect(storage).to.equal(1);
-            });
+            // deactivate data source
+            dataSource.deactivate();
+
+            // this call will stall
+            let removalPromise = dataSource.remove(location, [ objects[0] ]);
+            let result = await Promise.race([
+                removalPromise,
+                Bluebird.resolve('stalled').delay(100)
+            ]);
+            expect(result).to.equal('stalled');
+
+            expect(storage).to.equal(0);
+            let found2 = await dataSource.find(query);
+            // merging uncommitted delete into result
+            expect(found2).to.have.lengthOf(0);
+
+            // reactivate data source
+            dataSource.activate();
+
+            await removalPromise;
+            expect(storage).to.equal(1);
         })
-        it('should remove an object from local schema', function() {
+        it('should remove an object from local schema', async function() {
             let location = {
                 schema: 'local',
                 table: 'bob'
@@ -1159,127 +1064,109 @@ describe('RemoteDataSource', function() {
                     age: 87
                 }
             };
-            return dataSource.save(location, [ newObject ]).then(() => {
-                return dataSource.remove(location, [ newObject ]).then(() => {
-                    cache.reset();
-                    return dataSource.find(location).then((objects) => {
-                        expect(objects).to.have.lengthOf(0);
-                    });
-                });
-            });
+            await dataSource.save(location, [ newObject ]);
+            await dataSource.remove(location, [ newObject ]);
+            cache.reset();
+            let objects = await dataSource.find(location);
+            expect(objects).to.have.lengthOf(0);
         })
     })
     describe('#abandon()', function() {
-        it('should make searches at a given server dirty', function() {
+        it('should make searches at a given server dirty', async function() {
             let location = { address: 'http://toilet.helms-deep.me', schema: 'global', table: 'project' };
             let objects = [ { id: 1, gn: 2, name: 'fart' } ];
             let discovery = 0, retrieval = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return objects;
-                        }
-                    });
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                }
             };
             let query = _.extend(location, { blocking: 'expired', criteria: {} });
-            return dataSource.find(query).then((found) => {
-                expect(found).to.have.lengthOf(1);
-                expect(discovery).to.equal(1);
-                expect(retrieval).to.equal(1);
+            let found1 = await dataSource.find(query);
+            expect(found1).to.have.lengthOf(1);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
 
-                // wait for cache write to complete
-                return Promise.delay(500).then(() => {
-                    return cache.find(query).then((found) => {
-                        expect(found).to.have.lengthOf(1);
-                    });
-                });
-            }).then(() => {
-                dataSource.abandon(location.address, location.schema);
-            }).then(() => {
-                return dataSource.find(query).then((found) => {
-                    expect(found).to.have.lengthOf(1);
-                    // a discovery will occur again, since the criteria is open-ended
-                    // as the gn hasn't changed, the no retrieval will occur
-                    expect(discovery).to.equal(2);
-                    expect(retrieval).to.equal(1);
-                });
-            });
+            // wait for cache write to complete
+            await Bluebird.delay(500);
+            let found2 = await cache.find(query);
+            expect(found2).to.have.lengthOf(1);
+
+            await dataSource.abandon(location.address, location.schema);
+
+            let found3 = await dataSource.find(query);
+            expect(found3).to.have.lengthOf(1);
+            // a discovery will occur again, since the criteria is open-ended
+            // as the gn hasn't changed, the no retrieval will occur
+            expect(discovery).to.equal(2);
+            expect(retrieval).to.equal(1);
         })
     })
     describe('#invalidate()', function() {
-        it('should flag searches as dirty based on change info', function() {
+        it('should flag searches as dirty based on change info', async function() {
             let location = { address: 'http://kitchen.helms-deep.me', schema: 'global', table: 'project' };
             let objects = [ { id: 1, gn: 2, name: 'milk' } ];
             let discovery = 0, retrieval = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return objects;
-                        }
-                    });
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                }
             };
             let query = _.extend(location, { criteria: {} });
-            return dataSource.find(query).then((found) => {
-                expect(found).to.have.lengthOf(1);
-                expect(discovery).to.equal(1);
-                expect(retrieval).to.equal(1);
-            }).then(() => {
-                objects = [ { id: 1, gn: 3, name: 'cheese' } ];
-                let changes = [
-                    {
-                        address: location.address,
-                        schema: 'global',
-                        table: 'project',
-                        id: 1,
-                        gn: 3,
-                    }
-                ];
-                return dataSource.invalidate(changes);
-            }).then(() => {
-                let changeEventPromise = new ManualPromise;
-                dataSource.addEventListener('change', changeEventPromise.resolve);
+            let found1 = await dataSource.find(query);
+            expect(found1).to.have.lengthOf(1);
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
 
-                return dataSource.find(query).then((found) => {
-                    // the initial call to find() will return what we got before
-                    return changeEventPromise.timeout(1000);
-                }).then((evt) => {
-                    // a subsequent call triggered by change event will actually find
-                    // the updated results
-                    return dataSource.find(query).then((found) => {
-                        expect(found[0]).to.have.property('gn', 3);
-                        expect(discovery).to.equal(2);
-                        expect(retrieval).to.equal(2);
-                    });
-                });
-            });
+            objects = [ { id: 1, gn: 3, name: 'cheese' } ];
+            let changes = [
+                {
+                    address: location.address,
+                    schema: 'global',
+                    table: 'project',
+                    id: 1,
+                    gn: 3,
+                }
+            ];
+            await dataSource.invalidate(changes);
+
+            let changeEventPromise = ManualPromise();
+            dataSource.addEventListener('change', changeEventPromise.resolve);
+
+            let found2 = await dataSource.find(query);
+            expect(found2).to.deep.equal(found1);
+            // the initial call to find() will return what we got before
+            await changeEventPromise;
+            // a subsequent call triggered by change event will actually find
+            // the updated results
+            let found3 = await dataSource.find(query);
+            expect(found3[0]).to.have.property('gn', 3);
+            expect(discovery).to.equal(2);
+            expect(retrieval).to.equal(2);
         })
-        it('should flag all searches at all servers as dirty when no change info is given', function() {
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.try(() => {
-                    if (/discovery/.test(url)) {
-                        return { ids: [], gns: [] };
-                    } else if (/retrieval/.test(url)) {
-                        return [];
-                    }
-                });
+        it('should flag all searches at all servers as dirty when no change info is given', async function() {
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/discovery/.test(url)) {
+                    return { ids: [], gns: [] };
+                } else if (/retrieval/.test(url)) {
+                    return [];
+                }
             };
             let queries = [
                 { address: 'http://mirkwood.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
@@ -1287,18 +1174,16 @@ describe('RemoteDataSource', function() {
                 { address: 'http://mirkwood.me', schema: 'global', table: 'smerf', criteria: {}, blocking: true },
                 { address: 'http://rivendell.me', schema: 'global', table: 'project', criteria: {}, blocking: true },
             ];
-            return Promise.each(queries, (query) => {
-                return dataSource.find(query);
-            }).then(() => {
-                return dataSource.invalidate();
-            }).then(() => {
-                let searches = dataSource.recentSearchResults;
-                _.each(searches, (search) => {
-                    expect(search.dirty).to.be.true;
-                });
-            });
+            for (let query of queries) {
+                await dataSource.find(query);
+            }
+            await dataSource.invalidate();
+            let searches = dataSource.recentSearchResults;
+            for (let search of searches) {
+                expect(search.dirty).to.be.true;
+            }
         })
-        it('should trigger merging of remote changes', function() {
+        it('should trigger merging of remote changes', async function() {
             let location = { address: 'http://arnor.me', schema: 'global', table: 'project' };
             let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
             let changedObject = { id: 7, gn: 1, name: 'lizard' };
@@ -1314,101 +1199,87 @@ describe('RemoteDataSource', function() {
                 evt.preventDefault();
             };
             let discovery = 0, retrieval = 0, storage = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return objects;
-                        } else if (/storage/.test(url)) {
-                            storage++;
-                            expect(payload.objects[0]).to.have.property('name', 'merged');
-                            return payload.objects;
-                        }
-                    });
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                } else if (/storage/.test(url)) {
+                    storage++;
+                    expect(payload.objects[0]).to.have.property('name', 'merged');
+                    return payload.objects;
+                }
             };
             // initiate a deferred save
             let options = { delay: 500, onConflict };
             let savePromise = dataSource.save(location, [ changedObject ], options);
-            return Promise.try(() => {
-                // simulate a change by someone else in the meantime
-                objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                let changes = [
-                    {
-                        address: location.address,
-                        schema: 'global',
-                        table: 'project',
-                        id: 7,
-                        gn: 2,
-                    }
-                ];
-                return dataSource.invalidate(changes);
-            }).then(() => {
-                // wait for save() to finish
-                return savePromise;
-            }).then((results) => {
-                expect(results).to.have.lengthOf(1);
-                expect(onConflictCalled).to.be.true;
-                expect(retrieval).to.equal(1);
-                expect(storage).to.equal(1);
-            });
+            // simulate a change by someone else in the meantime
+            objects = [ { id: 7, gn: 2, name: 'cat' } ];
+            let changes = [
+                {
+                    address: location.address,
+                    schema: 'global',
+                    table: 'project',
+                    id: 7,
+                    gn: 2,
+                }
+            ];
+            await dataSource.invalidate(changes);
+            // wait for save() to finish
+            let results = await savePromise;
+            expect(results).to.have.lengthOf(1);
+            expect(onConflictCalled).to.be.true;
+            expect(retrieval).to.equal(1);
+            expect(storage).to.equal(1);
         })
-        it('should force the abandonment of a change when onConflict is not set', function() {
+        it('should force the abandonment of a change when onConflict is not set', async function() {
             let location = { address: 'http://esgaroth.me', schema: 'global', table: 'project' };
             let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
             let changedObject = { id: 7, gn: 1, name: 'lizard' };
             let discovery = 0, retrieval = 0, storage = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return objects;
-                        } else if (/storage/.test(url)) {
-                            storage++;
-                            return payload.objects;
-                        }
-                    });
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                } else if (/storage/.test(url)) {
+                    storage++;
+                    return payload.objects;
+                }
             };
             // initiate a deferred save
             let options = { delay: 500 };
             let savePromise = dataSource.save(location, [ changedObject ], options);
-            return Promise.try(() => {
-                // simulate a change by someone else in the meantime
-                objects = [ { id: 7, gn: 2, name: 'cat' } ];
-                let changes = [
-                    {
-                        address: location.address,
-                        schema: 'global',
-                        table: 'project',
-                        id: 7,
-                        gn: 2,
-                    }
-                ];
-                return dataSource.invalidate(changes);
-            }).then(() => {
-                // wait for save() to finish
-                return savePromise;
-            }).then((results) => {
-                expect(results).to.have.lengthOf(0);
-                expect(storage).to.equal(0);
-            });
+            // simulate a change by someone else in the meantime
+            objects = [ { id: 7, gn: 2, name: 'cat' } ];
+            let changes = [
+                {
+                    address: location.address,
+                    schema: 'global',
+                    table: 'project',
+                    id: 7,
+                    gn: 2,
+                }
+            ];
+            await dataSource.invalidate(changes);
+            // wait for save() to finish
+            let results = await savePromise;
+            expect(results).to.have.lengthOf(0);
+            expect(storage).to.equal(0);
         })
-        it('should force the abandonment of a change when onConflict does not call preventDefault', function() {
+        it('should force the abandonment of a change when onConflict does not call preventDefault', async function() {
             let location = { address: 'http://fangorn.me', schema: 'global', table: 'project' };
             let objects = [ { id: 7, gn: 1, name: 'piglet' } ];
             let changedObject = { id: 7, gn: 1, name: 'lizard' };
@@ -1417,50 +1288,156 @@ describe('RemoteDataSource', function() {
                 onConflictCalled = true;
             };
             let discovery = 0, retrieval = 0, storage = 0;
-            HTTPRequest.fetch = (method, url, payload, options) => {
-                return Promise.delay(50).then(() => {
-                    return Promise.try(() => {
-                        if (/discovery/.test(url)) {
-                            discovery++;
-                            return {
-                                ids: _.map(objects, 'id'),
-                                gns: _.map(objects, 'gn'),
-                            };
-                        } else if (/retrieval/.test(url)) {
-                            retrieval++;
-                            return objects;
-                        } else if (/storage/.test(url)) {
-                            storage++;
-                            return payload.objects;
-                        }
-                    });
-                });
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                await Bluebird.delay(50);
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    return objects;
+                } else if (/storage/.test(url)) {
+                    storage++;
+                    return payload.objects;
+                }
             };
             // initiate a deferred save
             let options = { delay: 500, onConflict };
             let savePromise = dataSource.save(location, [ changedObject ], options);
-            return Promise.try(() => {
-                // simulate a change by someone else in the meantime
-                objects = [ { id: 7, gn: 2, name: 'cat' } ];
+            // simulate a change by someone else in the meantime
+            objects = [ { id: 7, gn: 2, name: 'cat' } ];
+            let changes = [
+                {
+                    address: location.address,
+                    schema: 'global',
+                    table: 'project',
+                    id: 7,
+                    gn: 2,
+                }
+            ];
+            await dataSource.invalidate(changes);
+            // wait for save() to finish
+            let results = await savePromise;
+            expect(results).to.have.lengthOf(0);
+            expect(onConflictCalled).to.be.true;
+            expect(retrieval).to.equal(1);
+            expect(storage).to.equal(0);
+        })
+    })
+    describe('#revalidate()', function() {
+        it ('should force cache revalidation', async function() {
+            let query = {
+                address: 'http://dol-guldur.me',
+                schema: 'global',
+                table: 'user',
+                criteria: {},
+                blocking: 'expired',
+            };
+            let objects = [
+                { id: 1, gn: 70, username: 'gandolf', secret: 'magic' }
+            ]
+            let filtering = false;
+            let discovery = 0;
+            let retrieval = 0;
+            let signature = 0;
+            HTTPRequest.fetch = async (method, url, payload, options) => {
+                if (/discovery/.test(url)) {
+                    discovery++;
+                    return {
+                        ids: _.map(objects, 'id'),
+                        gns: _.map(objects, 'gn'),
+                    };
+                } else if (/retrieval/.test(url)) {
+                    retrieval++;
+                    if (filtering) {
+                        return _.map(objects, (object) => {
+                            return _.omit(object, 'secret');
+                        });
+                    } else {
+                        return objects;
+                    }
+                } else if (/signature/.test(url)) {
+                    signature++;
+                    if (filtering) {
+                        return { signature: 'hello' };
+                    } else {
+                        return { signature: 'world' };
+                    }
+                }
+            };
+            let users1 = await dataSource.find(query);
+            expect(users1[0]).to.have.property('secret');
+            expect(discovery).to.equal(1);
+            expect(retrieval).to.equal(1);
+            expect(signature).to.equal(1);
+            filtering = true;
+            await dataSource.revalidate();
+            await dataSource.invalidate();
+            let users2 = await dataSource.find(query);
+            expect(users2[0]).to.not.have.property('secret');
+            expect(discovery).to.equal(2);
+            expect(retrieval).to.equal(2);
+            expect(signature).to.equal(2);
+        })
+    })
+
+    describe('#waitForChange()', function() {
+        it ('should wait for change notification', async function() {
+            let location = {
+                address: 'http://dol-guldur.me',
+                schema: 'global',
+                table: 'user',
+            };
+            let object = { id: 1, gn: 70, username: 'gandolf', secret: 'magic' };
+            setTimeout(() => {
                 let changes = [
                     {
-                        address: location.address,
+                        address: 'http://dol-guldur.me',
                         schema: 'global',
-                        table: 'project',
-                        id: 7,
-                        gn: 2,
+                        table: 'user',
+                        id: 1,
+                        gn: 71
                     }
                 ];
-                return dataSource.invalidate(changes);
-            }).then(() => {
-                // wait for save() to finish
-                return savePromise;
-            }).then((results) => {
-                expect(results).to.have.lengthOf(0);
-                expect(onConflictCalled).to.be.true;
-                expect(retrieval).to.equal(1);
-                expect(storage).to.equal(0);
-            });
+                dataSource.invalidate(changes)
+            }, 50);
+            let result = await dataSource.waitForChange(location, object, 100);
+            expect(result).to.be.true;
+        })
+        it ('should quit waiting for change notification', async function() {
+            let location = {
+                address: 'http://dol-guldur.me',
+                schema: 'global',
+                table: 'user',
+            };
+            let object = { id: 1, gn: 70, username: 'gandolf', secret: 'magic' };
+            let result = await dataSource.waitForChange(location, object, 100);
+            expect(result).to.be.false;
+        })
+        it ('should should not return true when a different object changed', async function() {
+            let location = {
+                address: 'http://dol-guldur.me',
+                schema: 'global',
+                table: 'user',
+            };
+            let object = { id: 1, gn: 70, username: 'gandolf', secret: 'magic' };
+            setTimeout(() => {
+                let changes = [
+                    {
+                        address: 'http://dol-guldur.me',
+                        schema: 'global',
+                        table: 'user',
+                        id: 3,
+                        gn: 71
+                    }
+                ];
+                dataSource.invalidate(changes)
+            }, 50);
+            let result = await dataSource.waitForChange(location, object, 100);
+            expect(result).to.be.false;
         })
     })
 })
