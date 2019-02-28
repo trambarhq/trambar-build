@@ -28,7 +28,7 @@ var appNames = {
     ios: 'Trambar-iOS',
 };
 
-if (!appNames[targetOS]) {
+if (!appNames[targetOS] && targetOS !== 'all') {
     console.log(`Invalid platform: ${targetOS}`);
     process.exit(-1);
 }
