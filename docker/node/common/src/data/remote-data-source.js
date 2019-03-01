@@ -57,6 +57,7 @@ class RemoteDataSource extends EventEmitter {
             this.startTime = Moment();
             // force validation of schema signatures
             this.revalidate();
+            this.invalidate();
             this.dispatchPending();
         }
     }
@@ -1124,9 +1125,6 @@ class RemoteDataSource extends EventEmitter {
             search.start();
             let location = search.getLocation();
             let criteria = search.criteria;
-            if (search.remote) {
-                console.log(criteria);
-            }
             let discovery = await this.discoverRemoteObjects(location, criteria);
             if (search.remote) {
                 await this.retrieveFromLocalCache(search, discovery);
@@ -1182,9 +1180,6 @@ class RemoteDataSource extends EventEmitter {
             }
             search.notifying = false;
         } catch (err) {
-            if (process.env.NODE_ENV !== 'production') {
-                console.error(err);
-            }
             search.fail(err);
         }
     }
@@ -1259,14 +1254,25 @@ class RemoteDataSource extends EventEmitter {
 
     async fetchRemoteSignature(cacheSignature) {
         let session = this.obtainSession(cacheSignature);
-        let { schema } = cacheSignature;
-        let { basePath } = this.options;
-        let url = `${session.address}${basePath}/signature/${schema}`;
-        let options = { responseType: 'json', contentType: 'json' };
-        let payload = { auth_token: session.token };
-        let result = await HTTPRequest.fetch('POST', url, payload, options);
-        cacheSignature.signature = _.get(result, 'signature', '');
-        return cacheSignature.signature;
+        try {
+            let { schema } = cacheSignature;
+            let { basePath } = this.options;
+            let url = `${session.address}${basePath}/signature/${schema}`;
+            let options = { responseType: 'json', contentType: 'json' };
+            let payload = { auth_token: session.token };
+            let result = await HTTPRequest.fetch('POST', url, payload, options);
+            cacheSignature.signature = _.get(result, 'signature', '');
+            return cacheSignature.signature;
+        } catch (err) {
+            if (err.statusCode === 401) {
+                this.clearRecentOperations(session);
+                this.clearCachedSchemas(session);
+                this.discardSession(session);
+                this.triggerEvent(new RemoteDataSourceEvent('expiration', this, { session }));
+                this.triggerEvent(new RemoteDataSourceEvent('change', this));
+            }
+            throw err;
+        }
     }
 
     /**
