@@ -1852,7 +1852,7 @@ svg.profile-image {
           right: 0.1em; }
       .side-navigation .bottom-buttons .button .tooltip .label {
         display: inline-block;
-        color: #0077b3;
+        color: #0088cc;
         padding: 0.4em 0.5em 0.3em 0.5em; }
       .side-navigation .bottom-buttons .button .tooltip.live .label {
         cursor: pointer; }
@@ -1867,7 +1867,7 @@ svg.profile-image {
           visibility: hidden; }
         .side-navigation .bottom-buttons .button .tooltip .item.selected {
           cursor: default;
-          color: #0077b3; }
+          color: #0088cc; }
           .side-navigation .bottom-buttons .button .tooltip .item.selected .fa {
             visibility: visible; }
   .side-navigation.hidden .app-name, .side-navigation.hidden .navigation-tree {
@@ -1887,15 +1887,15 @@ svg.profile-image {
   .task-alert-bar .progress-bar-frame {
     display: inline-block;
     width: 10em;
-    border: 1px solid #0077b3;
+    border: 1px solid #0088cc;
     margin-left: 0.5em; }
     .task-alert-bar .progress-bar-frame .bar {
-      background-color: #0077b3;
+      background-color: #0088cc;
       height: 0.6em; }
   .task-alert-bar.hidden {
     bottom: -1.8em; }
   .task-alert-bar A {
-    color: #0077b3; }
+    color: #0088cc; }
     .task-alert-bar A:link, .task-alert-bar A:visited {
       text-decoration: none; }
     .task-alert-bar A:hover {
@@ -1918,7 +1918,7 @@ svg.profile-image {
 body {
   overflow: hidden; }
 
-.application {
+.front-end {
   position: absolute;
   display: flex;
   flex-direction: row;
