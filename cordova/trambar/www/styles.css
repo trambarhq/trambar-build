@@ -398,6 +398,7 @@ LABEL.push-button {
     align-items: center;
     justify-content: center; }
     .media-dialog-box .container IMG, .media-dialog-box .container CANVAS, .media-dialog-box .container svg {
+      width: 100%;
       -o-object-fit: contain;
          object-fit: contain;
       display: block; }
