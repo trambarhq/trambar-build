@@ -42,7 +42,7 @@ services:
       - DATABASE_ADMIN_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
       - DATABASE_CLIENT_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
       - DATABASE_AUTH_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
-    command: [ nodemon, -r, esm, schema-manager.js ]
+    command: [ node, -r, esm, schema-manager.js ]
     depends_on:
       - postgres
   # WebDAV server
@@ -60,7 +60,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
-    command: [ nodemon, -r, esm, webdav-server.js ]
+    command: [ node, -r, esm, webdav-server.js ]
     depends_on:
       - postgres
   # Data server (Node.js)
@@ -76,7 +76,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, -r, esm, data-server.js ]
+    command: [ node, -r, esm, data-server.js ]
     depends_on:
       - postgres
   # Admin data server (Node.js)
@@ -93,7 +93,7 @@ services:
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
       - ADMIN_GUEST_MODE=1
-    command: [ nodemon, -r, esm, data-server.js ]
+    command: [ node, -r, esm, data-server.js ]
     depends_on:
       - postgres
   # Authentication manager (Node.js)
@@ -112,7 +112,7 @@ services:
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_AUTH_PASSWORD}
       - HTPASSWD_PATH=/etc/trambar/${TRAMBAR_HTPASSWD_NAME}
       - ADMIN_GUEST_MODE=1
-    command: [ nodemon, -r, esm, session-manager.js ]
+    command: [ node, -r, esm, session-manager.js ]
     depends_on:
       - postgres
   # Media server (Node.js)
@@ -130,7 +130,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, -r, esm, media-server.js ]
+    command: [ node, -r, esm, media-server.js ]
     depends_on:
       - postgres
   # WebSocket Notifier (Node.js)
@@ -147,7 +147,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, -r, esm, event-notifier.js ]
+    command: [ node, -r, esm, event-notifier.js ]
     depends_on:
       - postgres
   # Live Data Invalidator (Node.js)
@@ -163,7 +163,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, -r, esm, live-data-invalidator.js ]
+    command: [ node, -r, esm, live-data-invalidator.js ]
     depends_on:
       - postgres
   # Live Data Updater (Node.js)
@@ -179,7 +179,7 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=client_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
-    command: [ nodemon, -r, esm, live-data-updater.js ]
+    command: [ node, -r, esm, live-data-updater.js ]
     depends_on:
       - postgres
   # GitLab Adapter (Node.js)
@@ -197,7 +197,6 @@ services:
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=admin_role
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ADMIN_PASSWORD}
-    #  - CACHE_FOLDER=/var/cache/gitlab
-    command: [ nodemon, -r, esm, gitlab-adapter.js ]
+    command: [ node, -r, esm, gitlab-adapter.js ]
     depends_on:
       - postgres

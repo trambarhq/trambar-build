@@ -1,0 +1,41 @@
+version: "2"
+services: 
+#  schema_manager:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, schema-manager.js ]
+  webdav_server:
+    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, webdav-server.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, webdav-server.js ]
+#  data_server:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, data-server.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, data-server.js ]
+#  admin_data_server:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, data-server.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, data-server.js ]
+#  session_manager:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, session-manager.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, session-manager.js ]
+#  media_server:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, media-server.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, media-server.js ]
+#  event_notifier:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, event-notifier.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, event-notifier.js ]
+#  live_data_invalidator:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, live-data-invalidator.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, live-data-invalidator.js ]
+#  live_data_updater:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, live-data-updater.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, live-data-updater.js ]
+#  gitlab_adapter:
+#    command: echo "Disabled"
+#    command: [ nodemon, -r, esm, gitlab-adapter.js ]
+#    command: [ node, --inspect, --debug-brk, -r, esm, gitlab-adapter.js ]
