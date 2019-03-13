@@ -2859,12 +2859,13 @@ LABEL.push-button {
       margin-bottom: 0.3em; }
       .project-description-dialog-box .description .image IMG, .project-description-dialog-box .description .image CANVAS, .project-description-dialog-box .description .image svg {
         width: 10em;
-        height: auto; }
+        height: 10em; }
   .single-col .project-description-dialog-box {
     width: 100%;
     max-width: none; }
     .single-col .project-description-dialog-box .description img {
-      width: 5em; }
+      width: 5em;
+      height: 5em; }
 .mobile-setup-dialog-box {
   display: flex;
   flex-direction: column;
