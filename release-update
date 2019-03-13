@@ -5,16 +5,19 @@ var Shell = require('./lib/shell');
 var File = require('./lib/file');
 
 var targetOS = (process.argv[2] || 'all').toLowerCase();
-var deployment = process.argv[3] || 'Development';
+var deployment = process.argv[3];
 var targetVersion = process.argv[4];
 
-if (deployment !== 'Development') {
-    if (!targetVersion) {
-        console.log('release-update <target-OS> <deployment> <target-version>');
-        console.log('\n\n');
+if (!deployment || (!targetVersion && deployment !== 'Development')) {
+    console.log('release-update <target-OS> <deployment> <target-version>');
+    if (deployment && !targetVersion) {
+        console.log('\n');
         console.log(`A target version must be supplied when deploying to ${deployment}`);
-        process.exit(-1);
     }
+    process.exit(-1);
+}
+
+if (deployment !== 'Development') {
     var codebaseVersion = getCodeVersion();
     var cordovaVersion = getCordovaVersion();
     if (codebaseVersion !== cordovaVersion) {
