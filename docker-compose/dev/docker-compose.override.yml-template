@@ -1,41 +1,41 @@
 version: "2"
-services: 
+services:
 #  schema_manager:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, schema-manager.js ]
+#    command: [ nodemon, --experimental-modules, schema-manager.mjs ]
   webdav_server:
     command: sleep 30
-#    command: [ nodemon, -r, esm, webdav-server.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, webdav-server.js ]
+#    command: [ nodemon, --experimental-modules, webdav-server.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, webdav-server.mjs ]
 #  data_server:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, data-server.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, data-server.js ]
+#    command: [ nodemon, --experimental-modules, data-server.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, data-server.mjs ]
 #  admin_data_server:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, data-server.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, data-server.js ]
+#    command: [ nodemon, --experimental-modules, data-server.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, data-server.mjs ]
 #  session_manager:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, session-manager.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, session-manager.js ]
+#    command: [ nodemon, --experimental-modules, session-manager.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, session-manager.mjs ]
 #  media_server:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, media-server.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, media-server.js ]
+#    command: [ nodemon, --experimental-modules, media-server.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, media-server.mjs ]
 #  event_notifier:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, event-notifier.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, event-notifier.js ]
+#    command: [ nodemon, --experimental-modules, event-notifier.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, event-notifier.mjs ]
 #  live_data_invalidator:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, live-data-invalidator.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, live-data-invalidator.js ]
+#    command: [ nodemon, --experimental-modules, live-data-invalidator.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, live-data-invalidator.mjs ]
 #  live_data_updater:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, live-data-updater.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, live-data-updater.js ]
+#    command: [ nodemon, --experimental-modules, live-data-updater.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, live-data-updater.mjs ]
 #  gitlab_adapter:
 #    command: sleep 30
-#    command: [ nodemon, -r, esm, gitlab-adapter.js ]
-#    command: [ node, --inspect, --debug-brk, -r, esm, gitlab-adapter.js ]
+#    command: [ nodemon, --experimental-modules, gitlab-adapter.mjs ]
+#    command: [ node, --inspect, --debug-brk, --experimental-modules, gitlab-adapter.mjs ]
