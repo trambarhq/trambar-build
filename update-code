@@ -17,8 +17,8 @@ var branch = Git.getCurrentBranch();
 if (Folder.exists(wf)) {
     Shell.chdir(wf);
     Git.reset();
-    Git.checkout(branch, { force: true });
     Git.fetch();
+    Git.checkout(branch, { force: true });
     Git.rebase();
     Shell.chdir(__dirname);
 } else {
@@ -90,6 +90,11 @@ if (part === 'backend' || part === 'all') {
     File.copy(`${wf}/backend/package-lock.json`, 'docker/node/package-lock.json');
     File.copy(`${wf}/backend/package.json`, 'docker/node-dev/package.json');
     File.copy(`${wf}/backend/package-lock.json`, 'docker/node-dev/package-lock.json');
+
+    // don't need WebDAV support in production build
+    Shell.chdir(`docker/node`);
+    Shell.run('npm remove jsDAV jsdav-promise gnu-tools');
+    Shell.chdir(__dirname);
 }
 
 if (newVersion === existingVersion) {
