@@ -1,24 +1,24 @@
 version: "2"
+volumes:
+  web_cache:
 services:
   # Nginx web server
   nginx:
-    image: trambar-nginx-dev
+    image: nginx
     ports:
       - 80:80
       - 443:443
     volumes:
-      - ../../docker/nginx/conf.d:/etc/nginx/conf.d
-      - ../../../trambar/admin/www:/var/www/trambar/admin
-      - ../../../trambar/client/www:/var/www/trambar/client
+      - ./conf.d:/etc/nginx/conf.d
       - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
-      - ./default.d:/etc/nginx/conf.d/default.d
+      - web_cache:/var/cache/nginx
       - ./snakeoil:/etc/ssl/snakeoil
     depends_on:
       - data_server
       - event_notifier
   # PostgreSQL database manager
   postgres:
-    image: trambar-postgres
+    image: trambar/trambar-postgres
     ports:
       - 5432:5432
     volumes:
@@ -53,13 +53,30 @@ services:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_ROOT_PASSWORD}
     command: [ node, --experimental-modules, webdav-server.mjs ]
+    depends_on:
+      - postgres
+  # Web page handler (Node.js)
+  www_handler:
+    image: trambar-node-dev
+    volumes:
+      - ../../../trambar/admin/www:/opt/trambar/admin/www
+      - ../../../trambar/backend/src:/opt/trambar/backend/src
+      - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
+      - ../../../trambar/client/www:/opt/trambar/client/www
+      - web_cache:/var/cache/nginx
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
+      - POSTGRES_USER=client_role
+      - POSTGRES_PASSWORD=${TRAMBAR_DATABASE_CLIENT_PASSWORD}
+    command: [ node, --experimental-modules, www-handler.mjs ]
     depends_on:
       - postgres
   # Data server (Node.js)
@@ -69,7 +86,6 @@ services:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -85,7 +101,6 @@ services:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -103,7 +118,6 @@ services:
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
       - ${TRAMBAR_HTPASSWD_FOLDER}:/etc/trambar
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -123,7 +137,6 @@ services:
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
       - ${TRAMBAR_MEDIA_FOLDER}:/var/cache/media
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -140,7 +153,6 @@ services:
       - ../../../trambar/client/src/locales:/opt/trambar/backend/src/locales
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -156,7 +168,6 @@ services:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -172,7 +183,6 @@ services:
       - ../../../trambar/backend/src:/opt/trambar/backend/src
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}
@@ -190,7 +200,6 @@ services:
       - ../../../trambar/common/src:/opt/trambar/backend/src/lib/common
       - /var/cache/git-cache:/var/cache/gitlab
     environment:
-      - NODE_PATH=/opt/trambar/backend/node_modules:/opt/trambar/backend/src:/opt/trambar/backend/src/lib:/opt/trambar/common/src
       - NODE_ENV=development
       - POSTGRES_HOST=postgres
       - POSTGRES_DB=${TRAMBAR_DATABASE_NAME}

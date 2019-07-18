@@ -1,1 +1,0 @@
-webpackJsonp([18],{"./instructions/server/icon-64x64-black.png":function(c,n,p){c.exports=p.p+"22543e7b2c04cc19330847d809558b14.png"}});
